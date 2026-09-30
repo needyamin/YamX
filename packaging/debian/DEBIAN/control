@@ -1,0 +1,12 @@
+Package: ymax
+Version: 1.0.30
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: nodejs (>= 18.0.0)
+Maintainer: Yamin <https://github.com/needyamin>
+Description: Terminal-first coding and operations agent
+ YamX (ymax) is a terminal-first coding and operations agent
+ designed for practical local work: debugging, log inspection,
+ repository editing, DevOps, network diagnostics, and defensive
+ security tasks. Offline-first with optional AI augmentation.

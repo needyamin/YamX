@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+echo "Stopping any running ymax web servers..."
+
+# Try to find and stop ymax web processes gracefully
+if command -v pkill >/dev/null 2>&1; then
+    pkill -f "ymax.*web" 2>/dev/null || true
+fi
+
+exit 0

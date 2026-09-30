@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+echo "Preparing to install ymax..."
+
+# Check for Node.js >= 18
+if ! command -v node >/dev/null 2>&1; then
+    echo "ERROR: Node.js is required but not installed."
+    echo "Please install Node.js 18+ before installing ymax:"
+    echo "  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -"
+    echo "  sudo apt-get install -y nodejs"
+    exit 1
+fi
+
+NODE_VERSION=$(node -v | sed 's/v//; s/\..*//')
+if [ "$NODE_VERSION" -lt 18 ]; then
+    echo "ERROR: Node.js >= 18 is required. Found: $(node -v)"
+    exit 1
+fi
+
+# Warn if old npm global yamx exists
+if command -v yamx >/dev/null 2>&1; then
+    YAMX_PATH=$(which yamx 2>/dev/null || true)
+    if echo "$YAMX_PATH" | grep -q "npm"; then
+        echo "WARNING: npm global yamx detected at $YAMX_PATH"
+        echo "The system package 'ymax' will be installed alongside it."
+        echo "Consider running: npm uninstall -g @needyamin/yamx"
+    fi
+fi
+
+exit 0

@@ -72,6 +72,51 @@ No global install:
 npx @needyamin/yamx
 ```
 
+System package (Debian/Ubuntu):
+
+```bash
+# Add the repository
+curl -fsSL https://needyamin.github.io/yamx/apt/KEY.gpg | sudo gpg --dearmor -o /usr/share/keyrings/ymax.gpg
+echo "deb [signed-by=/usr/share/keyrings/ymax.gpg] https://needyamin.github.io/yamx/apt stable main" | sudo tee /etc/apt/sources.list.d/ymax.list
+
+# Install
+sudo apt-get update
+sudo apt-get install ymax
+```
+
+Build `.deb` locally:
+
+```bash
+npm run package:deb
+sudo dpkg -i dist/ymax_*.deb
+sudo apt-get install -f
+```
+
+### Two binaries
+
+| Binary | Entry point | What it is |
+| --- | --- | --- |
+| `ymax` | `dist/ymax.js` | Router-based CLI. Offline-first, centralized routing into domain experts. Needs no API key. |
+| `yamx` | `dist/index.js` | Original agent CLI: sessions, 32 tools, codebase intelligence, multi-provider LLMs. |
+
+npm and the Debian package both install both binaries. They are independent entry points — `yamx` is unchanged.
+
+### How `ymax` routes input
+
+1. **Direct shell fast-path** — if the first token is a known command (`ls`, `git`, `docker`, `ip`, `npm`, …), it executes immediately. No classification, no model round-trip.
+2. **Intent classification** — a declarative route table matched in three tiers: exact pattern → keyword scoring with TF-IDF-style weights → fuzzy distance plus history boost.
+3. **Domain expert** — the winning route dispatches to one of eight experts: general, filesystem, shell, git, devops, security, project, web.
+
+```bash
+ymax "ip addr"            # shell fast-path
+ymax "git status"         # shell fast-path
+ymax "read package.json"  # filesystem expert
+ymax "scan for secrets"   # security expert
+ymax help                 # general expert
+```
+
+The AI layer in `src/ai/` ships with a `NullProvider` as the default, so `ymax` is fully functional offline. Plugging in a real provider is a drop-in change behind `AiProvider`.
+
 Uninstall:
 
 ```bash

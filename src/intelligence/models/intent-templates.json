@@ -1,0 +1,47 @@
+{
+  "templates": {
+    "show_help": {
+      "greeting": "Hello! I'm YamX, your offline terminal assistant.",
+      "response": "Type a command like 'read file.txt', 'run npm test', or 'git status'. Type 'help' anytime for the full list.",
+      "follow_up": ["diagnose", "scan_project"]
+    },
+    "general_chat": {
+      "responses": [
+        "I'm here to help with files, shell commands, git, DevOps, security, and project analysis.",
+        "Ask me to read files, run commands, check git status, or scan your project.",
+        "I work entirely offline. No AI APIs needed."
+      ]
+    },
+    "fallback": {
+      "responses": [
+        "I didn't catch that. Try 'help' for available commands.",
+        "Not sure what you mean. I can help with files, shell, git, and more.",
+        "Hmm, I don't recognize that command. Type 'help' to see what I can do."
+      ],
+      "suggestion_prefix": "Did you mean:"
+    },
+    "system_diagnose": {
+      "success": "System is ready. All experts loaded and operational.",
+      "failure": "There may be an issue. Check your Node.js version and permissions."
+    },
+    "read_file": {
+      "not_found": "File not found. Check the path and try again.",
+      "binary": "That looks like a binary file. I can only read text files.",
+      "success": "Here is the file content:"
+    },
+    "write_file": {
+      "created": "File created successfully.",
+      "updated": "File updated successfully.",
+      "dry_run": "Dry run complete. Here's what would change:"
+    },
+    "run_command": {
+      "running": "Running command...",
+      "done": "Command completed.",
+      "error": "Command failed with an error."
+    },
+    "git_status": {
+      "clean": "Working tree is clean.",
+      "dirty": "Here are your uncommitted changes:"
+    }
+  }
+}

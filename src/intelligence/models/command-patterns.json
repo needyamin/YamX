@@ -1,0 +1,120 @@
+{
+  "patterns": {
+    "read_file": {
+      "regex": [
+        "^(read|cat|show|view|open)\\s+(.+)$",
+        "^display\\s+(.+)$"
+      ],
+      "extract": ["path"]
+    },
+    "write_file": {
+      "regex": [
+        "^(write|create)\\s+(.+?)\\s+(with|containing)\\s+(.+)$",
+        "^save\\s+(.+)$"
+      ],
+      "extract": ["path", "content"]
+    },
+    "edit_file": {
+      "regex": [
+        "^(edit|modify|change|replace)\\s+(.+?)\\s+(with|to)\\s+(.+)$",
+        "^update\\s+(.+)$"
+      ],
+      "extract": ["path", "old_text", "new_text"]
+    },
+    "search_files": {
+      "regex": [
+        "^(search|find|grep|locate)\\s+(?:for\\s+)?['\"]?(.+?)['\"]?$",
+        "^look\\s+for\\s+(.+)$"
+      ],
+      "extract": ["pattern"]
+    },
+    "list_files": {
+      "regex": [
+        "^(list|ls|dir|files|tree)\\s*(.*)$"
+      ],
+      "extract": ["path"]
+    },
+    "delete_file": {
+      "regex": [
+        "^(delete|remove|rm|del)\\s+(.+)$"
+      ],
+      "extract": ["path"]
+    },
+    "run_command": {
+      "regex": [
+        "^(run|exec|execute|shell)\\s+(.+)$",
+        "^cmd\\s+(.+)$"
+      ],
+      "extract": ["command"]
+    },
+    "git_status": {
+      "regex": [
+        "^git\\s+status$",
+        "^(status|changes)$"
+      ],
+      "extract": []
+    },
+    "git_diff": {
+      "regex": [
+        "^git\\s+diff$",
+        "^(diff|compare)$"
+      ],
+      "extract": []
+    },
+    "git_commit": {
+      "regex": [
+        "^git\\s+commit\\s+(?:-m\\s+)?['\"](.+)['\"]$",
+        "^commit\\s+(.+)$"
+      ],
+      "extract": ["message"]
+    },
+    "git_log": {
+      "regex": [
+        "^git\\s+log$",
+        "^(log|history|commits)$"
+      ],
+      "extract": []
+    },
+    "git_branch": {
+      "regex": [
+        "^git\\s+branch$",
+        "^(branches|branch)$"
+      ],
+      "extract": []
+    },
+    "web_start": {
+      "regex": [
+        "^web$",
+        "^start\\s+(?:web|server|ui)$",
+        "^launch\\s+(?:web|server|ui)$"
+      ],
+      "extract": []
+    },
+    "help": {
+      "regex": [
+        "^help$",
+        "^\\/help$",
+        "^h$",
+        "^\\?$"
+      ],
+      "extract": []
+    },
+    "config": {
+      "regex": [
+        "^config$",
+        "^settings$",
+        "^setup$"
+      ],
+      "extract": []
+    },
+    "diagnose": {
+      "regex": [
+        "^diagnose$",
+        "^doctor$",
+        "^health$",
+        "^status$"
+      ],
+      "extract": []
+    }
+  }
+}

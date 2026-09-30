@@ -3,3 +3,9 @@ dist
 .env
 *.log
 .yamx
+.workbuddy-ai/
+# Build artifacts from package:deb / package:apt-repo
+apt-repo/
+packaging/debian/usr/
+packaging/debian/etc/
+*.deb

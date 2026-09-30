@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YamX (ymax) — Technical Documentation</title>
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --fg: #1a1a2e;
+      --muted: #6c757d;
+      --accent: #2563eb;
+      --accent-light: #dbeafe;
+      --border: #dee2e6;
+      --code-bg: #1e1e2e;
+      --code-fg: #e4e4e7;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --card-bg: #ffffff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.7;
+      font-size: 16px;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      padding: 4rem 2rem 3rem;
+      text-align: center;
+    }
+
+    header h1 {
+      font-size: 3rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 0.5rem;
+    }
+
+    header .tagline {
+      font-size: 1.25rem;
+      color: #94a3b8;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    header .badge {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 1rem;
+      margin-right: 0.5rem;
+    }
+
+    nav {
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      overflow-x: auto;
+    }
+
+    nav ul {
+      display: flex;
+      list-style: none;
+      justify-content: center;
+      gap: 0;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    nav a {
+      display: block;
+      padding: 1rem 1.25rem;
+      color: var(--fg);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.9rem;
+      border-bottom: 3px solid transparent;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+
+    nav a:hover, nav a.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    section {
+      margin-bottom: 3.5rem;
+    }
+
+    h2 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--accent-light);
+    }
+
+    h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 1.75rem 0 0.75rem;
+      color: var(--accent);
+    }
+
+    h4 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 1.25rem 0 0.5rem;
+    }
+
+    p { margin-bottom: 1rem; }
+
+    .lead {
+      font-size: 1.15rem;
+      color: var(--muted);
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+
+    .card h4 { margin-top: 0; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+    }
+
+    code {
+      font-family: "SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace;
+      background: #eef2f7;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+
+    pre {
+      background: var(--code-bg);
+      color: var(--code-fg);
+      padding: 1.25rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      margin: 1rem 0;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      font-size: inherit;
+    }
+
+    ul, ol {
+      margin: 0.75rem 0 0.75rem 1.5rem;
+    }
+
+    li { margin-bottom: 0.4rem; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.92rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--accent-light);
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    tr:hover { background: #f1f5f9; }
+
+    .highlight {
+      background: #fef3c7;
+      border-left: 4px solid var(--warning);
+      padding: 1rem 1.25rem;
+      border-radius: 0 6px 6px 0;
+      margin: 1rem 0;
+    }
+
+    .info {
+      background: var(--accent-light);
+      border-left: 4px solid var(--accent);
+      padding: 1rem 1.25rem;
+      border-radius: 0 6px 6px 0;
+      margin: 1rem 0;
+    }
+
+    .success-box {
+      background: #dcfce7;
+      border-left: 4px solid var(--success);
+      padding: 1rem 1.25rem;
+      border-radius: 0 6px 6px 0;
+      margin: 1rem 0;
+    }
+
+    .diagram {
+      background: var(--card-bg);
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 2rem;
+      text-align: center;
+      font-family: monospace;
+      color: var(--muted);
+      margin: 1.5rem 0;
+    }
+
+    .flow-step {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      margin: 0.25rem;
+      font-weight: 600;
+    }
+
+    .flow-arrow {
+      color: var(--muted);
+      font-size: 1.25rem;
+      margin: 0 0.25rem;
+    }
+
+    footer {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      margin-top: 2rem;
+    }
+
+    a { color: var(--accent); }
+
+    @media (max-width: 600px) {
+      header h1 { font-size: 2rem; }
+      main { padding: 1rem; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>YamX <code style="background:rgba(255,255,255,0.15);color:#fff;">ymax</code></h1>
+  <p class="tagline">Offline-first terminal agent with centralized routing, domain experts, and optional AI augmentation.</p>
+  <div>
+    <span class="badge">TypeScript</span>
+    <span class="badge">Node.js 18+</span>
+    <span class="badge">Offline-First</span>
+    <span class="badge">Debian Package</span>
+  </div>
+</header>
+
+<nav>
+  <ul>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#stack">Stack</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#router">Router</a></li>
+    <li><a href="#experts">Experts</a></li>
+    <li><a href="#intelligence">Intelligence</a></li>
+    <li><a href="#ai">AI Layer</a></li>
+    <li><a href="#packaging">Packaging</a></li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#implement">Implement</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<section id="overview">
+  <h2>Overview</h2>
+  <p class="lead">
+    YamX (<code>ymax</code>) is a terminal-first coding and operations agent redesigned around a <strong>centralized routing system</strong> that dispatches every command — whether from CLI, REPL, web API, or future IPC channels — to the correct <strong>domain expert</strong>. It works entirely offline. AI providers are optional augmentations, not requirements.
+  </p>
+
+  <div class="grid-3">
+    <div class="card">
+      <h4>Offline by Default</h4>
+      <p>Every code path works with zero network and zero API keys. A <code>NullProvider</code> handles all AI requests gracefully when no keys are configured.</p>
+    </div>
+    <div class="card">
+      <h4>Router Is King</h4>
+      <p>All input flows through <code>Router.dispatch()</code>. No direct expert calls from UI layers. The router classifies intent and extracts parameters before handing off.</p>
+    </div>
+    <div class="card">
+      <h4>Future-Proof AI</h4>
+      <p>Adding a new LLM provider requires changes only in <code>src/ai/</code>. The router and experts remain untouched.</p>
+    </div>
+  </div>
+
+  <div class="info">
+    <strong>Dual Entry:</strong> The project preserves the original <code>yamx</code> CLI (legacy AI-agent mode in <code>src/index.ts</code>) while adding the new <code>ymax</code> router-based CLI (<code>src/ymax.ts</code>). Both share the same compiled output and toolset.
+  </div>
+</section>
+
+<section id="stack">
+  <h2>Technology Stack</h2>
+
+  <table>
+    <thead>
+      <tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Runtime</td><td>Node.js 18+ (ES Modules)</td><td>Execution environment</td></tr>
+      <tr><td>Language</td><td>TypeScript 6.x</td><td>Type-safe source</td></tr>
+      <tr><td>CLI Parser</td><td>Commander.js 14.x</td><td>Flag and subcommand parsing</td></tr>
+      <tr><td>Terminal UI</td><td>Chalk 5.x, readline</td><td>Colors, prompts, REPL</td></tr>
+      <tr><td>File Operations</td><td>fs-extra, fast-glob</td><td>Cross-platform file I/O</td></tr>
+      <tr><td>Web Server</td><td>Node.js <code>http</code> (no Express)</td><td>Built-in HTTP API + SPA UI</td></tr>
+      <tr><td>AI Providers</td><td>OpenAI, Anthropic, Gemini, Ollama SDKs</td><td>Optional cloud/local LLM</td></tr>
+      <tr><td>Packaging</td><td>dpkg-deb, bash</td><td>Debian system package</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Project Structure</h3>
+  <pre><code>yamx/
+├── src/
+│   ├── index.ts              # Legacy AI-agent CLI entry
+│   ├── ymax.ts               # NEW: Router-based CLI entry
+│   ├── agent.ts              # ReAct agent loop (legacy)
+│   ├── router/               # Centralized routing system
+│   │   ├── index.ts          # Router.dispatch()
+│   │   ├── routes.ts         # Declarative route table
+│   │   ├── intent-classifier.ts  # 3-tier offline classification
+│   │   └── param-extractor.ts    # Entity extraction
+│   ├── experts/              # Domain-specific expert modules
+│   │   ├── base.ts           # BaseExpert abstract class
+│   │   ├── registry.ts       # ExpertRegistry (self-registration)
+│   │   ├── general.ts        # Fallback, help, config, onboarding
+│   │   ├── filesystem.ts     # File read/write/edit/search/delete
+│   │   ├── shell.ts          # Command execution, diagnostics, logs
+│   │   ├── git.ts            # Git status/diff/commit/log/branch
+│   │   ├── devops.ts         # Process, network, container checks
+│   │   ├── security.ts       # Secrets scan, dependency audit
+│   │   ├── project.ts        # Codebase analysis, dependency intel
+│   │   └── web.ts            # Web UI server lifecycle
+│   ├── intelligence/         # Offline local intelligence layer
+│   │   ├── index.ts          # IntelligenceEngine orchestrator
+│   │   ├── history.ts        # Command success/failure tracking
+│   │   ├── summarizer.ts     # Rule-based output truncation
+│   │   ├── embedding.ts      # TF-IDF similarity engine
+│   │   └── models/           # JSON pattern files
+│   ├── ai/                   # AI provider abstraction
+│   │   ├── interface.ts      # AiProvider contract
+│   │   ├── null-provider.ts  # Default no-op provider
+│   │   ├── adapter.ts        # Bridges old providers to new interface
+│   │   └── orchestrator.ts   # Decides when to use AI
+│   ├── tools/                # 32 low-level tools
+│   ├── providers/            # LLM provider implementations
+│   ├── web/                  # HTTP server + bundled SPA UI
+│   └── config/               # Configuration manager
+├── packaging/debian/         # Debian package scaffolding
+├── scripts/                  # build-deb.sh, setup-apt-repo.sh
+├── docs/                     # HTML docs, context memory
+└── config/tsconfig.json      # TypeScript compiler config</code></pre>
+</section>
+
+<section id="architecture">
+  <h2>System Architecture</h2>
+
+  <div class="diagram">
+    <span class="flow-step">User Input</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-step">Router</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-step">Intent Classifier</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-step">Param Extractor</span>
+    <br><br>
+    <span class="flow-step">AI Orchestrator</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-step">Expert Registry</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-step">Domain Expert</span>
+    <span class="flow-arrow">&rarr;</span>
+    <span class="flow-step">Tool Execution</span>
+  </div>
+
+  <h3>Data Flow</h3>
+  <ol>
+    <li><strong>Input Ingestion</strong> — CLI args, REPL line, or HTTP request is normalized into a <code>RouteRequest</code>.</li>
+    <li><strong>Intent Classification</strong> — Three-tier offline pipeline: exact pattern match &rarr; keyword TF-IDF scoring &rarr; Levenshtein fuzzy + history boost.</li>
+    <li><strong>Parameter Extraction</strong> — Regex-based entity extraction pulls file paths, URLs, ports, git refs, and package names into structured <code>params</code>.</li>
+    <li><strong>AI Decision Gate</strong> — <code>AiOrchestrator</code> decides whether to augment with AI based on confidence score and query complexity. Offline by default.</li>
+    <li><strong>Expert Dispatch</strong> — <code>ExpertRegistry.resolve()</code> returns the matched <code>BaseExpert</code> subclass.</li>
+    <li><strong>Workflow Execution</strong> — The expert runs its domain-specific workflow (e.g., validate paths &rarr; check permissions &rarr; backup &rarr; execute &rarr; verify).</li>
+    <li><strong>Result Rendering</strong> — Output is returned as string or structured JSON. Follow-up intents may be suggested.</li>
+  </ol>
+</section>
+
+<section id="router">
+  <h2>Centralized Router</h2>
+
+  <p>The router is the single entry point for <em>all</em> input vectors. It is completely decoupled from UI layers and AI providers.</p>
+
+  <h3>RouteRequest Interface</h3>
+  <pre><code>interface RouteRequest {
+  source: 'cli' | 'repl' | 'api' | 'web';
+  rawInput: string;
+  args?: Record&lt;string, any&gt;;
+  sessionId?: string;
+  cwd: string;
+  userConfig: YamConfig;
+}</code></pre>
+
+  <h3>RouteResult Interface</h3>
+  <pre><code>interface RouteResult {
+  expert: string;        // target expert name
+  intent: string;        // canonical intent label
+  confidence: number;    // 0.0 &ndash; 1.0
+  params: Record&lt;string, any&gt;;
+  executionMode: 'direct' | 'interactive' | 'async';
+}</code></pre>
+
+  <h3>Declarative Route Table</h3>
+  <p>Routes are defined as data, not switch statements. Each route specifies patterns, keywords, target expert, intent, priority, and execution mode.</p>
+
+  <pre><code>{
+  name: 'file_read',
+  patterns: ['read', 'cat', 'show', 'view', 'open'],
+  keywords: ['read', 'file', 'show', 'view', 'content'],
+  expert: 'filesystem',
+  intent: 'read_file',
+  priority: 85,
+  executionMode: 'direct'
+}</code></pre>
+
+  <h3>Intent Classification Pipeline</h3>
+  <div class="grid-2">
+    <div class="card">
+      <h4>Tier 1: Exact Match</h4>
+      <p>Direct string comparison against route patterns. First-token matching for high-priority routes. Score = 1.0.</p>
+    </div>
+    <div class="card">
+      <h4>Tier 2: Keyword Scoring</h4>
+      <p>TF-IDF-style weighted overlap between user tokens and route keywords. Phrase matches score higher than single words. Normalized by input length.</p>
+    </div>
+    <div class="card">
+      <h4>Tier 3: Fuzzy + History</h4>
+      <p>Levenshtein distance for typo tolerance. Historical success weights from <code>~/.ymax/intelligence-history.json</code> boost previously successful routes.</p>
+    </div>
+    <div class="card">
+      <h4>Fallback</h4>
+      <p>If top confidence &lt; 0.4, route to <code>GeneralExpert</code> in interactive mode. It suggests the most likely commands.</p>
+    </div>
+  </div>
+</section>
+
+<section id="experts">
+  <h2>Expert Module System</h2>
+
+  <p>Each expert is a self-contained domain handler that extends <code>BaseExpert</code> and self-registers into the global <code>ExpertRegistry</code> on import.</p>
+
+  <h3>BaseExpert Contract</h3>
+  <pre><code>abstract class BaseExpert {
+  abstract readonly name: string;
+  abstract readonly domain: string;
+  abstract readonly capabilities: string[];
+
+  abstract canHandle(intent: string, params: Record&lt;string, any&gt;): Promise&lt;boolean&gt;;
+  abstract execute(intent: string, params: Record&lt;string, any&gt;, context: ExecutionContext): Promise&lt;ExpertResult&gt;;
+  abstract getWorkflow(): WorkflowDefinition;
+}</code></pre>
+
+  <h3>Expert Registry</h3>
+  <p>Experts self-register using a side-effect import:</p>
+  <pre><code>// src/ymax.ts
+import './experts/filesystem.js';   // triggers: expertRegistry.register(new FilesystemExpert())
+import './experts/shell.js';
+import './experts/git.js';
+// ...</code></pre>
+
+  <h3>Available Experts</h3>
+  <table>
+    <thead>
+      <tr><th>Expert</th><th>Domain</th><th>Key Intents</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>GeneralExpert</code></td><td>meta</td><td>help, config, onboard, diagnose, chat, fallback</td></tr>
+      <tr><td><code>FilesystemExpert</code></td><td>files</td><td>read, write, edit, search, list, delete, move, copy, patch, tree</td></tr>
+      <tr><td><code>ShellExpert</code></td><td>shell</td><td>run command, diagnostics, background tasks, log inspection</td></tr>
+      <tr><td><code>GitExpert</code></td><td>git</td><td>status, diff, commit, log, branch, stash</td></tr>
+      <tr><td><code>DevOpsExpert</code></td><td>devops</td><td>process check, network diagnostics, container status</td></tr>
+      <tr><td><code>SecurityExpert</code></td><td>security</td><td>secrets scan, CVE/dependency audit</td></tr>
+      <tr><td><code>ProjectExpert</code></td><td>project</td><td>codebase scan, dependency check, project intel</td></tr>
+      <tr><td><code>WebExpert</code></td><td>web</td><td>start/stop web UI server</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example: FilesystemExpert Workflow</h3>
+  <pre><code>getWorkflow() => {
+  steps: [
+    { name: 'validate_paths',     required: true },
+    { name: 'check_permissions',  required: true },
+    { name: 'backup_if_destructive', required: false },
+    { name: 'execute',            required: true },
+    { name: 'verify',             required: true },
+  ]
+}</code></pre>
+</section>
+
+<section id="intelligence">
+  <h2>Local Intelligence Layer</h2>
+
+  <p>The <code>IntelligenceEngine</code> provides all offline reasoning capabilities. No API keys, no network.</p>
+
+  <h3>Capabilities</h3>
+  <ul>
+    <li><strong>Intent Classification</strong> — Fast-path exact commands, keyword mapping, and fallback detection.</li>
+    <li><strong>Command Suggestions</strong> — Prefix matching with project-context boosts (e.g., npm projects get <code>run npm test</code> suggested).</li>
+    <li><strong>Tool Ranking</strong> — Ranks the 32 available tools by relevance to the detected intent.</li>
+    <li><strong>Output Summarization</strong> — Rule-based truncation at logical boundaries. Prioritizes error lines.</li>
+    <li><strong>Entity Extraction</strong> — Regex patterns for files, URLs, ports, IPs, git refs, package names.</li>
+  </ul>
+
+  <h3>History Tracking</h3>
+  <p>Every command execution is recorded in <code>~/.ymax/intelligence-history.json</code>:</p>
+  <pre><code>{
+  "read_file": { "count": 12, "successes": 11, "failures": 1, "lastUsed": 1727830000000 },
+  "run_command": { "count": 5, "successes": 4, "failures": 1, "lastUsed": 1727831000000 }
+}</code></pre>
+  <p>Success rate and recency are combined into a boost factor applied during fuzzy routing.</p>
+
+  <h3>TF-IDF Embedding Engine</h3>
+  <p>A lightweight vectorizer computes cosine similarity between user input and route definitions. If a heavier ONNX model (e.g., <code>all-MiniLM-L6-v2</code>) is added later, the interface stays the same.</p>
+</section>
+
+<section id="ai">
+  <h2>AI Provider Abstraction</h2>
+
+  <p>AI is an <strong>augmentation</strong>, not a requirement. The system is fully functional with the <code>NullProvider</code>.</p>
+
+  <h3>Decision Rules (AiOrchestrator)</h3>
+  <ol>
+    <li>If no provider keys are configured &rarr; skip AI entirely.</li>
+    <li>If user passes <code>--legacy</code> or explicitly requests AI &rarr; use AI if available.</li>
+    <li>If local intent confidence &ge; 0.85 &rarr; skip AI for speed.</li>
+    <li>If confidence &lt; 0.5 and AI is available &rarr; augment classification with AI.</li>
+    <li>If query is complex (contains "explain", "debug", "refactor") &rarr; use AI.</li>
+  </ol>
+
+  <h3>Provider Adapter</h3>
+  <p>The existing provider classes (<code>OpenAIProvider</code>, <code>AnthropicProvider</code>, etc.) are wrapped by <code>ProviderAdapter</code> to satisfy the new <code>AiProvider</code> interface:</p>
+  <pre><code>// Register existing providers into the new orchestrator
+const orchestrator = new AiOrchestrator();
+if (cfg.providers.openai?.apiKey) {
+  orchestrator.registerProvider(
+    new ProviderAdapter(createProvider('openai', model, cfg))
+  );
+}</code></pre>
+
+  <div class="highlight">
+    <strong>Key Design Principle:</strong> When a new LLM is released, only <code>src/ai/</code> changes. The router, experts, and tool system remain untouched.
+  </div>
+</section>
+
+<section id="packaging">
+  <h2>Packaging & Distribution</h2>
+
+  <h3>Debian Package Structure</h3>
+  <pre><code>packaging/debian/
+├── DEBIAN/
+│   ├── control       # Package metadata
+│   ├── preinst       # Node.js version check
+│   ├── postinst      # Success message
+│   ├── prerm         # Stop web servers
+│   └── postrm        # Optional data cleanup prompt
+└── usr/
+    ├── bin/
+    │   └── ymax -> ../lib/ymax/bin/ymax
+    └── lib/ymax/
+        ├── bin/ymax   # Bash wrapper script
+        ├── dist/      # Compiled JS
+        ├── node_modules/  # Bundled production deps
+        ├── docs/
+        └── config/</code></pre>
+
+  <h3>Wrapper Script</h3>
+  <pre><code>#!/usr/bin/env bash
+export YAMX_INSTALL_MODE=system
+export YAMX_DATA_DIR="${YAMX_DATA_DIR:-$HOME/.ymax}"
+exec /usr/bin/node /usr/lib/ymax/dist/index.js "$@"</code></pre>
+
+  <h3>Build & Install</h3>
+  <pre><code># Build the .deb locally (requires dpkg-deb)
+npm run package:deb
+
+# Install
+sudo dpkg -i dist/ymax_1.0.30_amd64.deb
+sudo apt-get install -f
+
+# Or via APT repo
+echo "deb [signed-by=/usr/share/keyrings/ymax.gpg] https://needyamin.github.io/yamx/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/ymax.list
+sudo apt-get update
+sudo apt-get install ymax</code></pre>
+
+  <h3>CI/CD (GitHub Actions)</h3>
+  <p>On every version tag push (<code>v*</code>):</p>
+  <ol>
+    <li>Checkout, install Node, run <code>npm ci</code></li>
+    <li>Run tests and build</li>
+    <li>Build Debian package with <code>scripts/build-deb.sh</code></li>
+    <li>Attach <code>.deb</code> to GitHub Release</li>
+    <li>Deploy APT repo to GitHub Pages</li>
+  </ol>
+</section>
+
+<section id="usage">
+  <h2>How to Use</h2>
+
+  <h3>Direct Commands (Router Mode)</h3>
+  <pre><code># Files
+ymax read package.json
+ymax "search for TODO"
+ymax "list src --recursive"
+ymax "edit src/index.ts replace foo with bar"
+
+# Shell
+ymax "run npm test"
+ymax "run docker ps"
+ymax logs
+
+# Git
+ymax "git status"
+ymax "git diff"
+ymax "git commit 'Fix routing bug'"
+
+# DevOps & Security
+ymax "network check port 8080"
+ymax "security scan"
+ymax "scan project"
+
+# Meta
+ymax help
+ymax diagnose
+ymax config
+ymax web --port 8765</code></pre>
+
+  <h3>Interactive REPL</h3>
+  <pre><code>$ ymax
+YamX v1.0.30 — Offline Terminal Agent
+Type "help" for commands, "exit" to quit.
+
+ymax> read package.json
+[files] read_file (confidence: 100%)
+File: package.json ...
+
+ymax> git status
+[git] git_status (confidence: 100%)
+Branch: main ...
+
+ymax> exit</code></pre>
+
+  <h3>Legacy Agent Mode</h3>
+  <pre><code># Original AI-agent CLI (unchanged)
+yamx --provider openai --model gpt-5.2
+yamx web --port 8765
+yamx --onboard</code></pre>
+</section>
+
+<section id="implement">
+  <h2>How to Implement / Extend</h2>
+
+  <h3>1. Add a New Route</h3>
+  <p>Edit <code>src/router/routes.ts</code> and append to the <code>routes</code> array:</p>
+  <pre><code>{
+  name: 'my_feature',
+  patterns: ['myfeature', 'mf'],
+  keywords: ['myfeature', 'custom', 'plugin'],
+  expert: 'myexpert',
+  intent: 'run_my_feature',
+  priority: 70,
+  executionMode: 'direct',
+  description: 'Run my custom feature',
+  examples: ['myfeature', 'mf arg1'],
+}</code></pre>
+
+  <h3>2. Add a New Expert</h3>
+  <p>Create <code>src/experts/myexpert.ts</code>:</p>
+  <pre><code>import { BaseExpert, ExpertResult, ExecutionContext, WorkflowDefinition } from './base.js';
+import { expertRegistry } from './registry.js';
+
+export class MyExpert extends BaseExpert {
+  readonly name = 'myexpert';
+  readonly domain = 'custom';
+  readonly capabilities = ['do something cool'];
+
+  async canHandle(intent: string) {
+    return intent === 'run_my_feature';
+  }
+
+  async execute(intent: string, params: Record&lt;string, any&gt;, ctx: ExecutionContext) {
+    return this.formatSuccess(`Executed ${intent} with params: ${JSON.stringify(params)}`);
+  }
+
+  getWorkflow() {
+    return { name: 'custom', steps: [{ name: 'execute', description: 'Run it', required: true }] };
+  }
+}
+
+expertRegistry.register(new MyExpert());</code></pre>
+
+  <p>Then import it in <code>src/ymax.ts</code>:</p>
+  <pre><code>import './experts/myexpert.js';</code></pre>
+
+  <h3>3. Add a New AI Provider</h3>
+  <p>Implement <code>AiProvider</code> in <code>src/ai/my-provider.ts</code>, then register in <code>src/ymax.ts</code>:</p>
+  <pre><code>import { MyProvider } from './ai/my-provider.js';
+orchestrator.registerProvider(new MyProvider());</code></pre>
+
+  <h3>4. Add JSON Pattern Files</h3>
+  <p>Drop new regex patterns into <code>src/intelligence/models/</code>. The <code>ParamExtractor</code> and <code>IntelligenceEngine</code> read them at runtime.</p>
+
+  <div class="success-box">
+    <strong>No rebuild of the router or existing experts is required.</strong> The architecture is designed so that additions are purely additive.
+  </div>
+
+  <h3>Build & Test</h3>
+  <pre><code>npm run build          # Compile TypeScript
+node dist/ymax.js      # Test new CLI
+npm test               # Run test suite</code></pre>
+</section>
+
+</main>
+
+<footer>
+  <p>YamX &mdash; Built by <a href="https://github.com/needyamin">Yamin</a></p>
+  <p>ISC License &middot; <code>github.com/needyamin/yamx</code></p>
+</footer>
+
+<script>
+  // Smooth scroll for nav links
+  document.querySelectorAll('nav a').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  // Highlight active nav on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('nav a');
+  window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(s => {
+      if (scrollY >= s.offsetTop - 80) current = s.id;
+    });
+    navLinks.forEach(a => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  });
+</script>
+
+</body>
+</html>

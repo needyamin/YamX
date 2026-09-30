@@ -1,11 +1,12 @@
 {
   "name": "@needyamin/yamx",
   "version": "1.0.30",
-  "description": "Global CLI: run `yamx` from any terminal. Coding agent with 32 tools, persistent sessions, codebase intelligence, log inspection, markdown rendering, and multi-provider LLMs.",
+  "description": "Global CLI: run `ymax` or `yamx` from any terminal. Offline-first coding agent with centralized routing, domain experts, 32 tools, persistent sessions, codebase intelligence, and optional multi-provider LLMs.",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "yamx": "dist/index.js"
+    "yamx": "dist/index.js",
+    "ymax": "dist/ymax.js"
   },
   "files": [
     "dist/**/*.js",
@@ -41,7 +42,11 @@
     "assistant",
     "terminal",
     "cursor",
-    "yamx"
+    "yamx",
+    "ymax",
+    "offline",
+    "routing",
+    "expert-system"
   ],
   "author": "Yamin <https://github.com/needyamin>",
   "license": "ISC",
@@ -49,9 +54,13 @@
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "start": "node dist/index.js",
+    "start:ymax": "node dist/ymax.js",
     "dev": "ts-node --esm --project config/tsconfig.json src/index.ts",
+    "dev:ymax": "ts-node --esm --project config/tsconfig.json src/ymax.ts",
     "build": "tsc -p config/tsconfig.json",
-    "test": "npm run build && node tests/run.mjs"
+    "test": "npm run build && node tests/run.mjs",
+    "package:deb": "bash scripts/build-deb.sh",
+    "package:apt-repo": "bash scripts/setup-apt-repo.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",

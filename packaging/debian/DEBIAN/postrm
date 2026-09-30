@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+# Only prompt on purge or remove
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    if [ -d "$HOME/.ymax" ] || [ -d "/home/*/.ymax" ]; then
+        echo ""
+        echo "NOTE: User data in ~/.ymax/ was NOT removed automatically."
+        echo "To delete all ymax data, run: rm -rf ~/.ymax"
+        echo ""
+    fi
+fi
+
+exit 0

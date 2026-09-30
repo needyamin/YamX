@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "file_path": {
+      "patterns": [
+        "(?:file|path|in|at|to|from)\\s+['\"]?([\\w\\-./\\\\]+\\.[\\w]+)['\"]?",
+        "['\"]?([\\w\\-./\\\\]+\\.(?:ts|js|json|md|txt|py|rs|go|yml|yaml|xml|html|css|sh|java|c|cpp|h|hpp))['\"]?",
+        "\\b([\\w\\-./\\\\]+/[\\w\\-./\\\\]+)\\b"
+      ],
+      "examples": ["src/index.ts", "README.md", "docs/guide.md"]
+    },
+    "url": {
+      "patterns": [
+        "(https?://[^\\s\"]+)",
+        "(ftp://[^\\s\"]+)"
+      ],
+      "examples": ["https://github.com/needyamin/yamx", "http://localhost:8080"]
+    },
+    "port": {
+      "patterns": [
+        "(?:port|on)\\s+(\\d{2,5})",
+        ":(\\d{2,5})\\b"
+      ],
+      "examples": ["8080", "3000", "8765"]
+    },
+    "ip": {
+      "patterns": [
+        "\\b(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})\\b"
+      ],
+      "examples": ["127.0.0.1", "192.168.1.1"]
+    },
+    "git_ref": {
+      "patterns": [
+        "(?:branch|tag|commit)\\s+['\"]?([\\w\\-./]+)['\"]?"
+      ],
+      "examples": ["main", "feature/login", "v1.0.0"]
+    },
+    "package_name": {
+      "patterns": [
+        "(?:package|install|npm install|pip install)\\s+['\"]?(@?[\\w\\-@/]+)['\"]?"
+      ],
+      "examples": ["express", "lodash", "@types/node"]
+    }
+  }
+}

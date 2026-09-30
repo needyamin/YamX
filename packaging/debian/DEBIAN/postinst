@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+echo "ymax installed successfully!"
+echo ""
+echo "Usage:"
+echo "  ymax --help      Show help"
+echo "  ymax diagnose    Run system diagnostics"
+echo "  ymax             Start interactive session"
+echo ""
+echo "Config directory: ~/.ymax/"
+echo ""
+
+# Create system config dir if needed
+mkdir -p /etc/ymax
+
+exit 0

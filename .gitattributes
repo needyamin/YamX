@@ -1,0 +1,8 @@
+# Shell scripts and Debian control files must keep LF endings.
+# CRLF breaks the #!/bin/bash shebang when these run on Linux.
+*.sh text eol=lf
+packaging/debian/DEBIAN/* text eol=lf
+.github/workflows/*.yml text eol=lf
+
+# Normalize the rest to the platform default.
+* text=auto

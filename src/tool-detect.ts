@@ -6,6 +6,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { accessSync, constants, statSync } from 'node:fs';
 import path from 'node:path';
 
 export type ToolGroup =
@@ -210,6 +211,38 @@ const TOOL_CATALOG: ToolEntry[] = [
 
 const probeCache = new Map<string, string | null>();
 
+function isExecutableFile(candidate: string): boolean {
+  try {
+    const st = statSync(candidate);
+    if (!st.isFile()) return false;
+    if (process.platform !== 'win32') accessSync(candidate, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Filesystem fallback: walk PATH and look for an executable with this name.
+ * Used when `where.exe` / `command -v` is unavailable or spawning is blocked,
+ * so detection never silently reports "no tools" just because the probe failed.
+ */
+function resolveViaPath(name: string): string | null {
+  const pathEnv = process.env.PATH || process.env.Path || '';
+  const isWindows = process.platform === 'win32';
+  const extensions = isWindows
+    ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF;.WSH').split(';').filter(Boolean)
+    : [''];
+
+  for (const dir of pathEnv.split(path.delimiter).filter(Boolean)) {
+    for (const ext of extensions) {
+      const candidate = path.join(dir, name + ext);
+      if (isExecutableFile(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function resolveTool(name: string): string | null {
   if (probeCache.has(name)) return probeCache.get(name) ?? null;
 
@@ -233,6 +266,8 @@ function resolveTool(name: string): string | null {
   } catch {
     resolved = null;
   }
+
+  if (!resolved) resolved = resolveViaPath(name);
 
   probeCache.set(name, resolved);
   return resolved;

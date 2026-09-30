@@ -416,7 +416,12 @@ class WebAgentRuntime {
     if (!command) return failure(command, 'Error: message is required.', started, this.allowDangerous);
 
     const intent = classifyUserIntent(command);
-    if (intent.kind === 'conversation') {
+    // Conversational input is only short-circuited when nothing can answer it.
+    // With a provider available (override, warm env, or configured credentials)
+    // greetings and vague requests still reach the agent.
+    const canAnswer = await this.agentCanAnswer();
+    if (intent.kind === 'conversation' && !canAnswer) {
+      const { provider, model } = await this.resolveProviderLabels();
       return {
         ok: true,
         blocked: false,
@@ -429,13 +434,14 @@ class WebAgentRuntime {
         durationMs: Date.now() - started,
         cwd: getWorkspaceRelativeCwd(),
         allowDangerous: this.allowDangerous,
-        provider: this.agentEnv?.provider.name,
-        model: this.agentEnv?.provider.modelId,
+        provider,
+        model,
         sessionId: this.agentEnv?.session.id,
       };
     }
 
-    if (intent.kind === 'clarification') {
+    if (intent.kind === 'clarification' && !canAnswer) {
+      const { provider, model } = await this.resolveProviderLabels();
       return {
         ok: true,
         blocked: false,
@@ -448,8 +454,8 @@ class WebAgentRuntime {
         durationMs: Date.now() - started,
         cwd: getWorkspaceRelativeCwd(),
         allowDangerous: this.allowDangerous,
-        provider: this.agentEnv?.provider.name,
-        model: this.agentEnv?.provider.modelId,
+        provider,
+        model,
         sessionId: this.agentEnv?.session.id,
       };
     }
@@ -464,6 +470,7 @@ class WebAgentRuntime {
           this.agentEnv.session.messages = this.agentEnv.agent.getHistory();
           await this.agentEnv.store.saveSession(this.agentEnv.session);
         }
+        const { provider, model } = await this.resolveProviderLabels();
         return {
           ok: true,
           blocked: false,
@@ -475,8 +482,8 @@ class WebAgentRuntime {
           durationMs: Date.now() - started,
           cwd: getWorkspaceRelativeCwd(),
           allowDangerous: this.allowDangerous,
-          provider: this.agentEnv?.provider.name,
-          model: this.agentEnv?.provider.modelId,
+          provider,
+          model,
           sessionId: this.agentEnv?.session.id,
         };
       } catch (error: any) {
@@ -519,6 +526,42 @@ class WebAgentRuntime {
         ...failure(command, `AI error: ${error?.message || 'Unable to run YamX agent.'}`, started, this.allowDangerous),
         kind: 'chat',
       };
+    }
+  }
+
+  /** True when a provider can actually answer: override, warm env, or configured credentials. */
+  private async agentCanAnswer(): Promise<boolean> {
+    if (this.providerOverride || this.agentEnv) return true;
+    try {
+      const cfg = await this.loadConfig();
+      const pid = normalizeProviderName(this.providerName ?? cfg.defaultProvider ?? 'openrouter');
+      if (!providerUsesCloudApiKey(pid)) return true;
+      return hasCloudApiKey(cfg, pid);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Provider/model labels for responses that return before the agent env exists.
+   * The env is lazy, so greeting/clarification replies previously reported
+   * `undefined` for provider even when an override or configured default was set.
+   */
+  private async resolveProviderLabels(): Promise<{ provider?: string; model?: string }> {
+    if (this.providerOverride) {
+      return { provider: this.providerOverride.name, model: this.providerOverride.modelId };
+    }
+    if (this.agentEnv) {
+      return { provider: this.agentEnv.provider.name, model: this.agentEnv.provider.modelId };
+    }
+    try {
+      const cfg = await this.loadConfig();
+      return {
+        provider: this.providerName || cfg.defaultProvider,
+        model: this.modelName || cfg.defaultModel,
+      };
+    } catch {
+      return {};
     }
   }
 
