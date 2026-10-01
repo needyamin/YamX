@@ -16,19 +16,21 @@ import nodePath from 'node:path';
 import { createRequire } from 'node:module';
 import { stdin, stdout } from 'node:process';
 import { Agent } from './agent.js';
-import { Config, type YamConfig } from './config/index.js';
+import { Config } from './config/index.js';
 import { ContextEngine } from './context.js';
-import { UI } from './ui.js';
+import { REPL_PROMPT, UI } from './ui.js';
 import { Provider, Message } from './providers/base.js';
-import { createProvider, normalizeProviderName, resolveCloudApiKey, hasCloudApiKey, type ProviderName } from './providers/factory.js';
+import { createProvider, normalizeChatBaseUrl } from './providers/factory.js';
+import { OfflineProvider } from './providers/offline.js';
+import { runOfflineIntelligence } from './offline-repl.js';
 import { execSync } from 'child_process';
 import { SessionStore, type ChatSession } from './session-store.js';
 import { getToolCount } from './tools/registry.js';
 import { parseDirectCommand } from './direct-command.js';
-import { isDirectShellFailure, isDirectShellUserCancelled } from './direct-shell-diagnose.js';
+import { isDirectShellFailure, isDirectShellUserCancelled, isCommandNotFoundFailure, extractMissingCommandToken } from './direct-shell-diagnose.js';
 import { runCommand } from './tools/shell.js';
 import { handleCommand } from './commands/index.js';
-import { buildAgentInputWithProjectIntel, shouldAttachProjectIntel } from './project-intel.js';
+import { buildAgentInputWithProjectIntel, shouldAttachProjectIntel, isCodingTurn, buildCodingBrief, wrapCodingBrief, savePendingCodingBrief, consumePendingCodingBrief } from './project-intel.js';
 import { detectOfflineProjectScanIntent, runOfflineProjectScanAndSave } from './offline-project-scan.js';
 import { REPL_HISTORY_PATH, printReplHistory } from './repl-history.js';
 import { DEFAULT_MAX_ASSISTANT_MARKDOWN_CHARS } from './assistant-output-cap.js';
@@ -41,6 +43,7 @@ import {
 import { maybePromptCliUpdate } from './cli-update-check.js';
 import { startYamxWebServer } from './web/server.js';
 import { ensureCommandIntelligenceDatabase, suggestCommandFix, suggestCommands, type CommandSuggestion } from './command-intelligence.js';
+import { getCommandCorrections, isAutoExecutable, translateCommand, currentTarget, type CommandCorrection } from './command-corrections.js';
 import { PROJECT_ROOT } from './tools/utils.js';
 
 dotenv.config({ quiet: true });
@@ -58,100 +61,6 @@ const TERM = {
   warn: chalk.yellow('[!]'),
 } as const;
 
-const PROVIDER_CHOICES: Array<{ name: string; value: ProviderName }> = [
-  { name: 'OpenRouter  (100+ models: DeepSeek, Llama, Claude, GPT, Gemini)', value: 'openrouter' },
-  { name: 'OpenAI      (GPT-5.5 / GPT-5.4 / reasoning models)', value: 'openai' },
-  { name: 'Anthropic   (Claude Sonnet / Opus 4.x)', value: 'anthropic' },
-  { name: 'Gemini      (Gemini 3 / 2.5 Flash & Pro)', value: 'gemini' },
-  { name: 'Kimi        (Moonshot — Kimi K2.5 / K2.6, OpenAI-compatible)', value: 'kimi' },
-  { name: 'Grok        (xAI — Grok 4.x, OpenAI-compatible chat)', value: 'grok' },
-  { name: 'Ollama      (local models: Qwen, DeepSeek, Llama)', value: 'ollama' },
-];
-
-const KEY_HINTS: Record<Exclude<ProviderName, 'ollama'>, string> = {
-  openai: 'https://platform.openai.com/api-keys',
-  anthropic: 'https://console.anthropic.com/settings/keys',
-  gemini: 'https://aistudio.google.com/apikey',
-  kimi: 'https://platform.kimi.ai/',
-  grok: 'https://console.x.ai/team/default/api-keys',
-  openrouter: 'https://openrouter.ai/keys',
-};
-
-const PROVIDER_MODELS: Record<ProviderName, { name: string; value: string }[]> = {
-  openai: [
-    { name: 'GPT-5.2 (recommended)', value: 'gpt-5.2' },
-    { name: 'GPT-5.1', value: 'gpt-5.1' },
-    { name: 'GPT-5', value: 'gpt-5' },
-    { name: 'GPT-5 mini', value: 'gpt-5-mini' },
-    { name: 'GPT-5 nano', value: 'gpt-5-nano' },
-    { name: 'GPT-4.1', value: 'gpt-4.1' },
-    { name: 'o3', value: 'o3' },
-    { name: 'o4-mini', value: 'o4-mini' },
-    { name: 'GPT-4o', value: 'gpt-4o' },
-  ],
-  anthropic: [
-    { name: 'Claude Opus 4.1', value: 'claude-opus-4-1-20250805' },
-    { name: 'Claude Sonnet 4', value: 'claude-sonnet-4-20250514' },
-    { name: 'Claude Opus 4', value: 'claude-opus-4-20250514' },
-    { name: 'Claude 3.7 Sonnet', value: 'claude-3-7-sonnet-20250219' },
-    { name: 'Claude 3.5 Haiku', value: 'claude-3-5-haiku-20241022' },
-  ],
-  gemini: [
-    { name: 'Gemini 3 Flash Preview', value: 'gemini-3-flash-preview' },
-    { name: 'Gemini 3 Pro Preview', value: 'gemini-3-pro-preview' },
-    { name: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
-    { name: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro' },
-  ],
-  kimi: [
-    { name: 'Kimi K2.6 (recommended)', value: 'kimi-k2.6' },
-    { name: 'Kimi K2.5', value: 'kimi-k2.5' },
-    { name: 'Kimi K2 Thinking', value: 'kimi-k2-thinking' },
-  ],
-  grok: [
-    { name: 'Grok 4.3', value: 'grok-4.3' },
-    { name: 'Grok 4 latest', value: 'grok-4-latest' },
-    { name: 'Grok 4', value: 'grok-4' },
-  ],
-  openrouter: [
-    { name: 'DeepSeek Chat V3.1 (recommended)', value: 'deepseek-chat' },
-    { name: 'DeepSeek R1', value: 'deepseek-r1' },
-    { name: 'Claude Sonnet 4.6', value: 'claude-sonnet-4' },
-    { name: 'GPT-5.2', value: 'gpt-5.2' },
-    { name: 'Gemini 3 Flash Preview', value: 'gemini-3-flash' },
-    { name: 'Kimi K2.6', value: 'kimi-k2.6' },
-    { name: 'Grok 4.3', value: 'grok-4.3' },
-    { name: 'Llama 4 Maverick', value: 'llama-4-maverick' },
-  ],
-  ollama: [
-    { name: 'Qwen 2.5 Coder', value: 'qwen2.5-coder' },
-    { name: 'Qwen 3 Coder', value: 'qwen3-coder' },
-    { name: 'DeepSeek R1', value: 'deepseek-r1' },
-    { name: 'Llama 3.3', value: 'llama3.3' },
-  ],
-};
-
-/** Env var name YamX writes for .env quick-setup (matches official SDK docs). */
-function envKeyForProvider(providerId: string): string {
-  switch (String(providerId || '').toLowerCase()) {
-    case 'kimi':
-      return 'MOONSHOT_API_KEY';
-    case 'grok':
-      return 'XAI_API_KEY';
-    default:
-      return `${String(providerId).toUpperCase()}_API_KEY`;
-  }
-}
-
-function needsAutoOnboarding(
-  configFileExists: boolean,
-  cfg: YamConfig,
-  cliProviderFlag?: string
-): boolean {
-  if (!configFileExists) return true;
-  const p = normalizeProviderName(cliProviderFlag || cfg.defaultProvider || 'openrouter');
-  return !hasCloudApiKey(cfg, p);
-}
-
 function parseWebPort(value: unknown): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -164,12 +73,7 @@ program
   .name('yamx')
   .description('YamX - agent CLI with persistent chat sessions')
   .version(VERSION)
-  .option(
-    '-p, --provider <provider>',
-    'LLM provider (openai, anthropic, gemini, kimi, grok, openrouter, ollama)',
-    ''
-  )
-  .option('-m, --model <model>', 'Model name')
+  .option('-m, --model <model>', 'Model name for the saved endpoint')
   .option('--auto-approve', 'Auto-approve all tool actions (dangerous!)', false)
   .option('--no-stream', 'Disable streaming output')
   .option('-t, --temperature <temp>', 'Temperature (0-1)', '0.1')
@@ -179,9 +83,9 @@ program
   .option('--history', 'List saved conversations, then exit', false)
   .option('--resume <id>', 'Resume a session (full UUID or unique prefix)')
   .option('--delete-chat <id>', 'Delete a session by id or prefix, then exit', '')
-  .option('--onboard', 'Setup or switch provider, API key, model, and core settings', false)
+  .option('--onboard', 'Set base URL, API key, and model name', false)
   .option('--reset-config', 'Reset ~/.yamx/config.json to defaults, then exit', false)
-  .option('--diagnose', 'Check configuration, API keys, and connectivity', false);
+  .option('--diagnose', 'Check configuration and the saved model endpoint', false);
 
 program
   .command('config')
@@ -196,10 +100,8 @@ program
         name: 'action',
         message: 'What would you like to configure?',
         choices: [
-          { name: 'Setup / Switch Provider + Model + API Key', value: 'wizard' },
-          { name: 'Set API Key', value: 'apikey' },
-          { name: 'Set Default Provider', value: 'provider' },
-          { name: 'Set Default Model', value: 'model' },
+          { name: 'Set base URL, API key, and model', value: 'wizard' },
+          { name: 'Set model name for the saved endpoint', value: 'model' },
           { name: 'Set context budget (chars for auto-summarize)', value: 'budget' },
           { name: 'Set low-memory context rollover mode', value: 'contextmode' },
           { name: 'Set max tool-result history size', value: 'toolresults' },
@@ -212,39 +114,24 @@ program
     ]);
 
     if (action === 'wizard') {
-      await runOnboard(config, { title: 'YamX · Setup / Switch Provider' });
-    } else if (action === 'apikey') {
-      const { provider } = await inquirer.prompt([
-        {
-          type: 'rawlist',
-          name: 'provider',
-          message: 'Select provider:',
-          choices: PROVIDER_CHOICES.filter((choice) => choice.value !== 'ollama'),
-        },
-      ]);
-      await configureProviderAccess(config, normalizeProviderName(provider));
-      await config.save();
-      console.log(chalk.green(`[+] ${provider} API key saved.`));
-    } else if (action === 'provider') {
-      const { provider } = await inquirer.prompt([
-        {
-          type: 'rawlist',
-          name: 'provider',
-          message: 'Select default provider:',
-          default: config.get().defaultProvider || 'openrouter',
-          choices: PROVIDER_CHOICES,
-        },
-      ]);
-      config.set('defaultProvider', normalizeProviderName(provider));
-      await config.save();
-      console.log(chalk.green(`[+] Default provider set to ${normalizeProviderName(provider)}.`));
+      await runOnboard(config, { title: 'Connect a model' });
     } else if (action === 'model') {
-      const provider = (config.get().defaultProvider || 'openrouter') as ProviderName;
-      const model = await chooseModel(provider, config.get().defaultModel || (provider === 'openrouter' ? 'deepseek-chat' : undefined));
-      config.set('defaultModel', model);
-      config.set(`providers.${provider}.model`, model);
+      const current = config.get().providers.custom?.model || config.get().defaultModel || '';
+      const { model } = await inquirer.prompt<{ model: string }>([
+        {
+          type: 'input',
+          name: 'model',
+          message: 'Model name for the saved endpoint:',
+          default: current,
+          validate: (value: string) => value.trim().length > 0 || 'Model name is required',
+        },
+      ]);
+      const next = model.trim();
+      config.set('defaultProvider', 'custom');
+      config.set('defaultModel', next);
+      config.set('providers.custom.model', next);
       await config.save();
-      console.log(chalk.green(`[+] Default model set to ${model}.`));
+      console.log(chalk.green(`[+] Model set to ${next}.`));
     } else if (action === 'budget') {
       const { n } = await inquirer.prompt([
         {
@@ -369,8 +256,7 @@ program
   .description('Start the local YamX web command UI')
   .option('-P, --port <port>', 'Port to listen on', '8765')
   .option('--host <host>', 'Host to bind', '127.0.0.1')
-  .option('-p, --provider <provider>', 'LLM provider for web chat')
-  .option('-m, --model <model>', 'Model for web chat')
+  .option('-m, --model <model>', 'Model for the saved endpoint')
   .option('--auth-user <username>', 'HTTP Basic auth username (or YAMX_WEB_USERNAME)')
   .option('--auth-pass <password>', 'HTTP Basic auth password (or YAMX_WEB_PASSWORD)')
   .option('--auth-realm <realm>', 'HTTP Basic auth realm (or YAMX_WEB_AUTH_REALM)', 'YamX Web')
@@ -387,7 +273,6 @@ program
       port,
       host,
       allowDangerous: options.allowDangerous === true,
-      providerName: options.provider,
       modelName: options.model,
       authUsername: authUser,
       authPassword: authPass,
@@ -426,7 +311,7 @@ program.action(async (options) => {
   }
 
   if (options.onboard) {
-    await runOnboard(config, { title: 'YamX · Setup / Switch Provider' });
+    await runOnboard(config, { title: 'Connect a model', exitOnCancel: true });
     process.exit(0);
   }
 
@@ -436,32 +321,6 @@ program.action(async (options) => {
   }
 
   const delArg = options.deleteChat != null ? String(options.deleteChat).trim() : '';
-
-  // Auto-onboard for first-time users
-  const fs = await import('fs-extra');
-  const path = await import('path');
-  const os = await import('os');
-  const configPath = path.default.join(os.default.homedir(), '.yamx', 'config.json');
-  const configExists = await fs.default.pathExists(configPath);
-
-  const isCommandRun = options.onboard || options.diagnose || options.history || options.clearChat || options.resetConfig || delArg;
-
-  const cliProvider = typeof options.provider === 'string' && options.provider.trim() ? options.provider : undefined;
-
-  if (!isCommandRun && needsAutoOnboarding(configExists, cfg, cliProvider)) {
-    console.log(
-      chalk.yellow(
-        configExists
-          ? '\nYamX needs an API key for your default provider — starting setup.'
-          : "\nWelcome to YamX — starting first-time setup (same as `yamx --onboard`)."
-      )
-    );
-    await runOnboard(config, {
-      title: configExists ? 'YamX · Complete setup' : 'YamX · First-time setup',
-      firstRun: !configExists,
-    });
-    Object.assign(cfg, config.get());
-  }
 
   if (options.history) {
     const sessions = await store.listSessions();
@@ -518,61 +377,20 @@ program.action(async (options) => {
     process.exit(0);
   }
 
-  let providerName = options.provider || cfg.defaultProvider || 'openai';
-  let modelName = options.model || cfg.defaultModel;
+  const modelNameFromConfig = cfg.providers?.custom?.model || cfg.defaultModel;
+  let modelName = options.model || modelNameFromConfig;
+  let providerName = 'custom';
   let provider: Provider;
   try {
-    provider = createProvider(providerName, modelName, cfg);
+    provider = createProvider('custom', modelName, cfg);
+    providerName = provider.name;
+    modelName = provider.modelId;
   } catch (error: any) {
-    if (error.message.includes('API key not found')) {
-      console.log(chalk.hex('#FF4136').bold(`\n  ${TERM.warn} ${error.message.split('.')[0]}`)); // Just the first sentence
-
-      const { choice } = await inquirer.prompt([
-        {
-          type: 'rawlist',
-          name: 'choice',
-          message: 'How would you like to configure your API key?',
-          choices: [
-            { name: '1) Run interactive global setup (Recommended)', value: 'global' },
-            { name: '2) Create a .env file in this directory', value: 'env' },
-            { name: '3) Exit', value: 'exit' },
-          ]
-        }
-      ]);
-
-      if (choice === 'global') {
-        await runOnboard(config, { title: 'YamX · Setup / Switch Provider' });
-        Object.assign(cfg, config.get());
-        providerName = options.provider || cfg.defaultProvider || 'openai';
-        modelName = options.model || cfg.defaultModel;
-        provider = createProvider(providerName, modelName, cfg);
-      } else if (choice === 'env') {
-        const envVar = envKeyForProvider(providerName);
-        const { key } = await inquirer.prompt([
-          {
-            type: 'password',
-            name: 'key',
-            message: `Enter your API key (stored as ${envVar}; pasting is hidden):`,
-            mask: '*'
-          }
-        ]);
-        const fs = await import('fs-extra');
-        const envPath = path.resolve(process.cwd(), '.env');
-        let envContent = '';
-        if (await fs.pathExists(envPath)) {
-          envContent = await fs.readFile(envPath, 'utf-8');
-          if (!envContent.endsWith('\n')) envContent += '\n';
-        }
-        envContent += `${envVar}=${key}\n`;
-        await fs.writeFile(envPath, envContent, 'utf-8');
-        console.log(chalk.green(`\n  [+] Saved to ${envPath}`));
-
-        process.env[envVar] = key;
-        provider = createProvider(providerName, modelName, cfg);
-      } else {
-        console.log(chalk.dim('\nGoodbye.'));
-        process.exit(0);
-      }
+    const setupMsg = String(error?.message || error);
+    if (setupMsg.includes('API key not found') || setupMsg.includes('Custom endpoint not configured')) {
+      provider = new OfflineProvider();
+      providerName = provider.name;
+      modelName = provider.modelId;
     } else {
       ui.error(error.message);
       process.exit(1);
@@ -587,7 +405,11 @@ program.action(async (options) => {
   ui.startThinking('Scanning project...');
   const systemPrompt = await contextEngine.buildSystemPrompt();
   ui.stopSpinner();
-  ui.info(`Project scanned | ${getToolCount()} tools loaded | ~/.yamx/sessions/\n`);
+  ui.info(
+    provider.name === 'offline'
+      ? `Offline · local routing, shell, files, and git · /connect to add a model\n`
+      : `Project scanned | ${getToolCount()} tools loaded | ~/.yamx/sessions/\n`
+  );
 
   let currentSession: ChatSession;
 
@@ -674,9 +496,12 @@ program.action(async (options) => {
     verboseCli,
     maxAssistantMarkdownChars: assistantMdCap,
     preflightRuntimeProbes: cfg.settings?.preflightRuntimeProbes !== false,
+    subagentsEnabled: cfg.settings?.subagents?.enabled !== false,
+    subagentMaxParallel: cfg.settings?.subagents?.maxParallel ?? 3,
+    subagentMaxIterations: cfg.settings?.subagents?.maxIterations ?? 12,
   });
 
-  ui.banner(provider.name, provider.modelId, {
+  await ui.banner(provider.name, provider.modelId, {
     title: currentSession.title,
     id: currentSession.id,
   }, getToolCount(), VERSION, councilOn);
@@ -757,7 +582,7 @@ program.action(async (options) => {
   while (true) {
     let input: string;
     try {
-      input = (await inputSession.question(`${chalk.hex('#41FF70').bold('YamX')} ${chalk.hex('#00FF41')('›')} `)).trim();
+      input = (await inputSession.question(REPL_PROMPT)).trim();
       if (!input) continue;
       await inputSession.save(input);
     } catch {
@@ -770,7 +595,18 @@ program.action(async (options) => {
     if (input.startsWith('/')) {
       activeWork = true;
       try {
-        await handleCommand(input, agent, provider, { store, session: currentSession, agent }, cfg, executeDirectCommand);
+        await handleCommand(input, agent, provider, { store, session: currentSession, agent }, cfg, executeDirectCommand, {
+          onConnect: async () => {
+            const saved = await runOnboard(config, { title: 'Connect a model', exitOnCancel: false });
+            if (!saved) return;
+            Object.assign(cfg, config.get());
+            providerName = 'custom';
+            modelName = options.model || cfg.providers?.custom?.model || cfg.defaultModel || modelName;
+            provider = createProvider('custom', modelName, cfg);
+            agent.setProvider(provider);
+            ui.info(`Connected · ${provider.name} · ${provider.modelId}`);
+          },
+        });
         agent.getUI().cueTTYAfterBulkOutput();
       } finally {
         endReplActiveWork();
@@ -820,10 +656,26 @@ program.action(async (options) => {
 
     try {
       activeWork = true;
-      const agentInput = shouldAttachProjectIntel(input)
-        ? await buildAgentInputWithProjectIntel(input)
-        : input;
-      await agent.chat(agentInput);
+      if (isCodingTurn(input)) {
+        const freshBrief = await buildCodingBrief(input);
+        if (provider.name === 'offline') {
+          savePendingCodingBrief(input, freshBrief);
+          ui.info('This change needs a model. Project path and stack are saved. Use /connect, then ask again.');
+          agent.getUI().cueTTYAfterBulkOutput();
+        } else {
+          const saved = consumePendingCodingBrief();
+          const brief = saved ? `${saved.brief}\n\n${freshBrief}` : freshBrief;
+          await agent.chat(wrapCodingBrief(brief, input));
+        }
+      } else if (provider.name === 'offline') {
+        await runOfflineIntelligence(input, cfg);
+        agent.getUI().cueTTYAfterBulkOutput();
+      } else {
+        const agentInput = shouldAttachProjectIntel(input)
+          ? await buildAgentInputWithProjectIntel(input)
+          : input;
+        await agent.chat(agentInput);
+      }
     } catch (error: any) {
       agent.getUI().error(`Fatal error: ${error.message}`);
     } finally {
@@ -1243,18 +1095,18 @@ async function executeDirectCommand(
   diagnoseOnFailure = true
 ): Promise<void> {
   const ui = agent.getUI();
-  const args = { command };
+  const translated = translateCommand(command, currentTarget());
+  const native = translated && translated.corrected.trim().toLowerCase() !== command.trim().toLowerCase()
+    ? translated.corrected
+    : command;
+  if (native !== command) {
+    ui.info(`${command.trim()} → ${native}`);
+  }
+  const args = { command: native };
   const isDangerous = runCommand.isDangerous?.(args) ?? false;
   if (isDangerous && !autoApprove) {
-    ui.approvalNeeded('run_command', args);
-    const { approved } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'approved',
-        message: 'This is a dangerous command. Proceed?',
-        default: false,
-      },
-    ]);
+    ui.approvalNeeded('run_command', args, true);
+    const approved = await ui.confirmAction('Do you want to proceed?', false);
     if (!approved) {
       ui.warn('Command denied.');
       ui.cueTTYAfterBulkOutput();
@@ -1275,28 +1127,90 @@ async function executeDirectCommand(
   ui.cueTTYAfterBulkOutput();
 
   if (diagnoseOnFailure && isDirectShellFailure(result)) {
-    const offlineFix = await suggestCommandFix(command).catch(() => null);
-    if (offlineFix && offlineFix.command !== command && !(runCommand.isDangerous?.({ command: offlineFix.command }) ?? false)) {
-      ui.info(`Offline command intelligence suggests: ${offlineFix.command}`);
-      ui.toolCall('run_command', { command: offlineFix.command });
-      const fixStarted = Date.now();
-      setRunCommandAbortCheck(() => agent.isStopRequested());
-      let fixedResult: string;
-      try {
-        fixedResult = await runCommand.execute({ command: offlineFix.command });
-      } finally {
-        setRunCommandAbortCheck(null);
-      }
-      ui.toolResult('run_command', fixedResult, Date.now() - fixStarted);
-      ui.cueTTYAfterBulkOutput();
-      if (!isDirectShellFailure(fixedResult)) return;
+    const handled = await runSmartCommandCorrection(agent, native, result);
+    if (handled) return;
 
-      await askAgentToRecoverFromDirectShellFailure(agent, command, result, offlineFix.command, fixedResult);
-      return;
-    }
-
-    await askAgentToRecoverFromDirectShellFailure(agent, command, result);
+    await askAgentToRecoverFromDirectShellFailure(agent, native, result);
   }
+}
+
+/** Run a corrected command through the same direct-shell execution path. */
+async function runCorrectedDirectCommand(agent: Agent, correction: CommandCorrection): Promise<string> {
+  const ui = agent.getUI();
+  ui.toolCall('run_command', { command: correction.corrected });
+  const fixStarted = Date.now();
+  setRunCommandAbortCheck(() => agent.isStopRequested());
+  let fixedResult: string;
+  try {
+    fixedResult = await runCommand.execute({ command: correction.corrected });
+  } finally {
+    setRunCommandAbortCheck(null);
+  }
+  ui.toolResult(
+    "run_command",
+    fixedResult,
+    Date.now() - fixStarted
+  );
+  ui.cueTTYAfterBulkOutput();
+  return fixedResult;
+}
+
+/**
+ * Smart correction for a failed direct shell line:
+ *  1. cross-platform translation (Windows <-> Linux/macOS native equivalents),
+ *  2. first-word typo repair against executables actually on this machine,
+ *  3. the offline command-intelligence database as a fuzzy fallback.
+ * Confident, safe corrections are auto-executed when the failure clearly was
+ * "command not found"; otherwise an interactive "Did you mean?" list is shown.
+ * Returns true when a correction was attempted.
+ */
+async function runSmartCommandCorrection(agent: Agent, command: string, result: string): Promise<boolean> {
+  const ui = agent.getUI();
+  const corrections = (await getCommandCorrections(command, { output: result }).catch(() => []))
+    .filter((item) => !item.dangerous && item.corrected.trim() !== command.trim());
+  if (corrections.length === 0) return false;
+
+  const best = corrections[0];
+  if (isAutoExecutable(best, result)) {
+    ui.info(`Auto-fix (${best.kind}, ${Math.round(best.confidence * 100)}%): ${best.corrected} — ${best.reason}`);
+    const fixedResult = await runCorrectedDirectCommand(agent, best);
+    if (isDirectShellUserCancelled(fixedResult)) return true;
+    if (!isDirectShellFailure(fixedResult)) {
+      ui.info("Auto-corrected command succeeded.");
+      return true;
+    }
+    await askAgentToRecoverFromDirectShellFailure(agent, command, result, best.corrected, fixedResult);
+    return true;
+  }
+
+  // Confidence too low, or the failure was not "command not found" — offer choices.
+  if (!process.stdout.isTTY) return false;
+  const missing = extractMissingCommandToken(result);
+  ui.info(
+    missing
+      ? `YamX command intelligence: "${missing}" is not available here — did you mean:`
+      : "YamX command intelligence — did you mean:"
+  );
+  corrections.slice(0, 4).forEach((item, index) => {
+    ui.info(`  [${index + 1}] ${item.corrected}   (${item.kind}, ${Math.round(item.confidence * 100)}% — ${item.reason})`);
+  });
+  const { picked } = await inquirer.prompt<{ picked: CommandCorrection | null }>([
+    {
+      type: "list",
+      name: "picked",
+      message: "Run a correction?",
+      choices: [
+        ...corrections.slice(0, 4).map((item) => ({ name: item.corrected, value: item })),
+        { name: "No — ask the agent to diagnose instead", value: null },
+      ],
+    },
+  ]);
+  if (!picked) return false;
+  const fixedResult = await runCorrectedDirectCommand(agent, picked);
+  if (isDirectShellUserCancelled(fixedResult)) return true;
+  if (!isDirectShellFailure(fixedResult)) return true;
+  await askAgentToRecoverFromDirectShellFailure(agent, command, result, picked.corrected, fixedResult);
+  return true;
 }
 
 async function askAgentToRecoverFromDirectShellFailure(
@@ -1310,6 +1224,14 @@ async function askAgentToRecoverFromDirectShellFailure(
     return;
   }
   const ui = agent.getUI();
+  if (agent.getProviderName() === 'offline') {
+    const failedOutput = offlineFixResult && isCommandNotFoundFailure(offlineFixResult) ? offlineFixResult : result;
+    if (isCommandNotFoundFailure(failedOutput)) {
+      const missing = extractMissingCommandToken(failedOutput) || command.trim().split(/\s+/)[0];
+      ui.info(`${missing} is not installed.`);
+    }
+    return;
+  }
   ui.neuralStatus('recover', offlineFixCommand
     ? 'offline correction also failed; asking agent to diagnose and continue'
     : 'direct shell command failed; asking agent to diagnose and continue');
@@ -1354,77 +1276,6 @@ async function resolveSessionRef(
 }
 
 // --- Onboard ---
-
-async function chooseModel(provider: ProviderName, currentModel?: string): Promise<string> {
-  const safeProvider = normalizeProviderName(provider);
-  const models = PROVIDER_MODELS[safeProvider] || PROVIDER_MODELS.openrouter;
-  const defaultModel = currentModel || (safeProvider === 'openrouter' ? 'deepseek-chat' : models[0]?.value);
-  const choices = [
-    ...models,
-    ...(currentModel && !models.some((choice) => choice.value === currentModel)
-      ? [{ name: `Keep current (${currentModel})`, value: currentModel }]
-      : []),
-    { name: 'Other (type manually)', value: 'other' },
-  ];
-
-  const { selectedModel } = await inquirer.prompt<{ selectedModel: string }>([
-    {
-      type: 'rawlist',
-      name: 'selectedModel',
-      message: `Choose model for ${safeProvider}:`,
-      default: defaultModel,
-      choices,
-    },
-  ]);
-
-  if (selectedModel !== 'other') return selectedModel;
-  const { customModel } = await inquirer.prompt<{ customModel: string }>([
-    {
-      type: 'input',
-      name: 'customModel',
-      message: 'Enter custom model name:',
-      default: currentModel || '',
-      validate: (value: string) => value.trim().length > 0 || 'Model name is required',
-    },
-  ]);
-  return customModel.trim();
-}
-
-async function configureProviderAccess(config: Config, provider: ProviderName): Promise<void> {
-  provider = normalizeProviderName(provider);
-  if (provider === 'ollama') {
-    const currentUrl = config.get().providers.ollama?.baseUrl || 'http://localhost:11434';
-    const { url } = await inquirer.prompt<{ url: string }>([
-      {
-        type: 'input',
-        name: 'url',
-        message: 'Ollama base URL:',
-        default: currentUrl,
-        validate: (value: string) => value.trim().length > 0 || 'Base URL is required',
-      },
-    ]);
-    config.set('providers.ollama.baseUrl', url.trim());
-    return;
-  }
-
-  console.log(chalk.dim(`  Get your key: ${KEY_HINTS[provider]}`));
-  const existingKey = (config.get().providers as any)?.[provider]?.apiKey || process.env[`${provider.toUpperCase()}_API_KEY`] || '';
-  const { key } = await inquirer.prompt<{ key: string }>([
-    {
-      type: 'password',
-      name: 'key',
-      message: existingKey
-        ? `API key for ${provider} (press Enter to keep existing):`
-        : `API key for ${provider} (pasting is hidden):`,
-      mask: '*',
-      validate: (value: string) => {
-        const finalValue = value || existingKey;
-        return finalValue.trim().length > 8 || 'Key looks too short';
-      },
-    },
-  ]);
-  config.set(`providers.${provider}.apiKey`, (key || existingKey).trim());
-}
 
 async function configureRuntimeSettings(config: Config, firstRun: boolean): Promise<void> {
   const { tune } = await inquirer.prompt<{ tune: boolean }>([
@@ -1538,43 +1389,145 @@ async function configureRuntimeSettings(config: Config, firstRun: boolean): Prom
   config.set('settings.checkForUpdates', answers.checkForUpdates);
 }
 
-async function runOnboard(config: Config, options: { title?: string; firstRun?: boolean } = {}) {
-  await config.load();
+function parseHeaderList(raw: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of raw.split(/[\n,]/)) {
+    const row = part.trim();
+    if (!row) continue;
+    const idx = row.indexOf(':');
+    if (idx <= 0) continue;
+    const name = row.slice(0, idx).trim();
+    const value = row.slice(idx + 1).trim();
+    if (name) out[name] = value;
+  }
+  return out;
+}
 
-  const title = options.title || 'YamX · Setup / Switch Provider';
-  const firstRun = options.firstRun ?? false;
-  console.log(chalk.hex('#00FF41').bold(`\n  +==============[ ${title} ]==============+\n`));
-  console.log(chalk.dim('  Change provider, API key, Ollama URL, default model, and runtime behavior.\n'));
-
-  const { provider: selectedProvider } = await inquirer.prompt<{ provider: string }>([
+/** Ask for base URL, API key, and any model name. Returns the model id. */
+async function promptCustomModel(config: Config): Promise<string> {
+  const current = config.get().providers.custom;
+  const answers = await inquirer.prompt<{
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    headers: string;
+  }>([
     {
-      type: 'rawlist',
-      name: 'provider',
-      message: 'Choose LLM provider:',
-      default: config.get().defaultProvider || 'openrouter',
-      choices: PROVIDER_CHOICES,
+      type: 'input',
+      name: 'baseUrl',
+      message: 'Base URL',
+      default: current?.baseUrl || 'https://api.example.com/v1',
+      validate: (value: string) =>
+        normalizeChatBaseUrl(value) ? true : 'Use an http(s) URL such as https://api.example.com/v1',
+    },
+    {
+      type: 'password',
+      name: 'apiKey',
+      message: current?.apiKey
+        ? 'API key (leave blank to keep the saved key)'
+        : 'API key (optional for a local server)',
+      mask: '*',
+    },
+    {
+      type: 'input',
+      name: 'model',
+      message: 'Model name',
+      default: current?.model || config.get().defaultModel || '',
+      validate: (value: string) => value.trim().length > 0 || 'Model name is required',
+    },
+    {
+      type: 'input',
+      name: 'headers',
+      message: 'Extra headers (Name: value, comma-separated, blank keeps saved headers)',
+      default: '',
     },
   ]);
-  const provider = normalizeProviderName(selectedProvider);
 
-  await configureProviderAccess(config, provider);
-  const model = await chooseModel(
-    provider,
-    config.get().defaultProvider === provider
-      ? config.get().defaultModel || (provider === 'openrouter' ? 'deepseek-chat' : undefined)
-      : (config.get().providers as any)?.[provider]?.model
-  );
+  const baseUrl = normalizeChatBaseUrl(answers.baseUrl)!;
+  const model = answers.model.trim();
+  const incomingKey = answers.apiKey.trim();
+  const apiKey = incomingKey || current?.apiKey;
+  const typedHeaders = answers.headers.trim();
+  const extraHeaders = typedHeaders ? parseHeaderList(typedHeaders) : current?.extraHeaders;
+  config.set('providers.custom', {
+    baseUrl,
+    model,
+    ...(apiKey ? { apiKey } : {}),
+    ...(extraHeaders && Object.keys(extraHeaders).length ? { extraHeaders } : {}),
+  });
+  return model;
+}
+
+async function runOnboard(config: Config, options: { title?: string; firstRun?: boolean; exitOnCancel?: boolean } = {}): Promise<boolean> {
+  await config.load();
+
+  const title = options.title || 'Model settings';
+  const firstRun = options.firstRun ?? false;
+  console.log(chalk.hex('#D97757').bold(`\n  ${title}\n`));
+  console.log(chalk.dim('  Any OpenAI-compatible model. Set the base URL, API key, and model name.\n'));
+
+  const savedCustom = config.get().providers.custom?.baseUrl;
+  const savedModel = config.get().providers.custom?.model;
+  const choices: Array<{ name: string; value: string }> = [
+    { name: 'Set base URL, API key, and model', value: 'edit' },
+  ];
+  if (savedCustom) {
+    choices.push({
+      name: `Keep saved model (${savedModel || 'model'} · ${savedCustom})`,
+      value: 'saved',
+    });
+  }
+  choices.push({ name: 'Cancel', value: 'cancel' });
+
+  const { mode } = await inquirer.prompt<{ mode: string }>([
+    {
+      type: 'rawlist',
+      name: 'mode',
+      message: 'Model settings',
+      choices,
+    },
+  ]);
+
+  if (mode === 'cancel') {
+    if (options.exitOnCancel) {
+      console.log(chalk.dim('\n  Goodbye.\n'));
+      process.exit(0);
+    }
+    console.log(chalk.dim('\n  Kept the current model.\n'));
+    return false;
+  }
+
+  let model: string;
+  if (mode === 'edit') {
+    model = await promptCustomModel(config);
+  } else {
+    model = config.get().providers.custom?.model || config.get().defaultModel || '';
+    if (!model) {
+      const { customModel } = await inquirer.prompt<{ customModel: string }>([
+        {
+          type: 'input',
+          name: 'customModel',
+          message: 'Model name:',
+          validate: (value: string) => value.trim().length > 0 || 'Model name is required',
+        },
+      ]);
+      model = customModel.trim();
+    }
+  }
+
   await configureRuntimeSettings(config, firstRun);
 
-  config.set('defaultProvider', provider);
+  config.set('defaultProvider', 'custom');
   config.set('defaultModel', model);
-  config.set(`providers.${provider}.model`, model);
+  config.set('providers.custom.model', model);
   await config.save();
 
-  console.log(chalk.green('\n  [+] Configuration saved to ~/.yamx/config.json'));
-  console.log(chalk.dim(`  Provider: ${provider} | Model: ${model}`));
-  console.log(chalk.dim(`  Tools: ${getToolCount()} | Streaming: ${config.get().settings.streamOutput} | Model council: ${config.get().settings.modelCouncil?.mode || 'adaptive'}`));
-  console.log(chalk.hex('#00FF41')('\n  Run `yamx` to start coding.\n'));
+  console.log(chalk.hex('#8FBC8F')('\n  Configuration saved to ~/.yamx/config.json'));
+  console.log(chalk.dim(`  Base URL: ${config.get().providers.custom?.baseUrl || savedCustom || ''}`));
+  console.log(chalk.dim(`  Model: ${model}`));
+  console.log(chalk.dim(`  Tools: ${getToolCount()} · Streaming: ${config.get().settings.streamOutput}`));
+  console.log(chalk.dim('\n  Run `yamx` to start.\n'));
+  return true;
 }
 
 // --- Diagnose ---
@@ -1597,38 +1550,11 @@ async function runDiagnose(config: Config, cfg: any) {
   const configExists = await fs.default.pathExists(configPath);
   console.log(`  ${configExists ? TERM.ok : TERM.bad} Config file ${configExists ? 'exists' : 'missing'}: ${configPath}`);
 
-  // Provider keys
-  const providers: Exclude<ProviderName, 'ollama'>[] = [
-    'openai',
-    'anthropic',
-    'gemini',
-    'kimi',
-    'grok',
-    'openrouter',
-  ];
-  for (const p of providers) {
-    const key = resolveCloudApiKey(cfg, p);
-    const has = !!key;
-    const mark = has ? TERM.ok : TERM.idle;
-    console.log(`  ${mark} ${p.padEnd(12)} ${has ? `key: ${key.slice(0, 6)}...` : chalk.dim('not configured')}`);
-  }
-
-  // Ollama
-  const ollamaUrl = cfg.providers?.ollama?.baseUrl || 'http://localhost:11434';
-  try {
-    const http = await import('http');
-    await new Promise<void>((resolve, reject) => {
-      const req = http.default.get(`${ollamaUrl}/api/tags`, { timeout: 3000 }, (res) => {
-        res.resume();
-        resolve();
-      });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-    });
-    console.log(`  ${TERM.ok} ollama       reachable at ${ollamaUrl}`);
-  } catch {
-    console.log(`  ${TERM.idle} ollama       ${chalk.dim(`not reachable at ${ollamaUrl}`)}`);
-  }
+  const customUrl = String(cfg.providers?.custom?.baseUrl || '').trim();
+  const customModel = String(cfg.providers?.custom?.model || cfg.defaultModel || '').trim();
+  console.log(
+    `  ${customUrl ? TERM.ok : TERM.idle} model        ${customUrl ? `${customUrl}${customModel ? ' · ' + customModel : ''}` : chalk.dim('not configured — set one with yamx --onboard')}`
+  );
 
   // Git
   try {
@@ -1643,7 +1569,7 @@ async function runDiagnose(config: Config, cfg: any) {
   const sessionFiles = await fs.default.readdir(sessDir).catch(() => []);
   console.log(`  ${chalk.cyan('Sessions')}   ${sessionFiles.length} saved`);
 
-  console.log(chalk.dim('\n  Default: ') + chalk.white(`${cfg.defaultProvider || 'openrouter'} / ${cfg.defaultModel || 'deepseek-chat'}`));
+  console.log(chalk.dim('\n  Model: ') + chalk.white(customModel || chalk.dim('none')));
   console.log();
 }
 

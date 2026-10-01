@@ -4,7 +4,7 @@ export const WEB_HTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#05100a">
+  <meta name="theme-color" content="#2a211c">
   <title>YamX Web</title>
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -13,7 +13,7 @@ export const WEB_HTML = `<!doctype html>
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="sidebar-brand">
         <div class="brand">YamX</div>
-        <div class="brand-tag">Execution Console</div>
+        <div class="brand-tag" id="brand-tag">local · offline</div>
       </div>
       <div class="sidebar-meta">
         <div class="sub" id="cwd" title="Working directory and model (when loaded)">cwd: .</div>
@@ -34,7 +34,7 @@ export const WEB_HTML = `<!doctype html>
         </button>
         <button type="button" class="nav-item" data-panel="tools" role="tab" aria-selected="false">
           <span class="nav-ico" aria-hidden="true">[+]</span>
-          <span class="nav-label">Tools &amp; API</span>
+          <span class="nav-label">Tools</span>
         </button>
       </nav>
       <p class="sidebar-hint muted">Local control plane | bind stays on loopback</p>
@@ -63,67 +63,9 @@ export const WEB_HTML = `<!doctype html>
                   <div class="terminal-workspace">
                     <div class="terminal-chrome">
                   <span class="chrome-title">Conversation</span>
-                  <span class="chrome-hint muted">You | instant | reply when ready</span>
+                  <span class="chrome-hint muted">Shell runs locally. Code, fixes, and debugging use the connected model.</span>
                 </div>
-                <details class="execution-lab" id="execution-quick">
-                  <summary>Execution mode · Provider</summary>
-                  <div class="execution-toolbar" role="group" aria-label="Execution controls">
-                    <label class="mode-select-wrap">Execution mode
-                      <select id="command-mode" class="mode-select" aria-label="Execution mode">
-                        <option value="auto">auto</option>
-                        <option value="shell">shell</option>
-                        <option value="agent">agent</option>
-                      </select>
-                    </label>
-                    <label class="mode-select-wrap">Provider
-                      <select id="provider-quick" class="mode-select" aria-label="Default LLM provider" title="Switch default provider (saved to config; next chat uses it)"></select>
-                    </label>
-                  </div>
-                  <div class="provider-readiness-row" id="provider-readiness" role="status" aria-live="polite">Loading provider status...</div>
-                </details>
-                <details class="execution-lab" id="execution-lab">
-                  <summary>Execution lab</summary>
-                  <div class="execution-lab-grid">
-                    <label>Shell runtime
-                      <select id="shell-runtime">
-                        <option value="auto">auto</option>
-                        <option value="cmd">cmd</option>
-                        <option value="powershell">powershell</option>
-                        <option value="pwsh">pwsh</option>
-                        <option value="bash">bash</option>
-                        <option value="sh">sh</option>
-                        <option value="zsh">zsh</option>
-                        <option value="fish">fish</option>
-                      </select>
-                    </label>
-                    <label>Timeout (seconds)
-                      <input id="timeout-sec" type="number" min="1" max="600" step="1" value="120" inputmode="numeric">
-                    </label>
-                    <label>Output cap (chars)
-                      <input id="max-chars" type="number" min="1000" max="500000" step="1000" value="80000" inputmode="numeric">
-                    </label>
-                    <label>CWD override (optional)
-                      <input id="cwd-override" type="text" placeholder=". | subdir | path inside project">
-                    </label>
-                  </div>
-                  <div class="execution-profiles" id="execution-profiles">
-                    <span class="exec-profile-label">Profiles:</span>
-                    <button type="button" class="exec-profile" data-profile="balanced">balanced</button>
-                    <button type="button" class="exec-profile" data-profile="fast">fast</button>
-                    <button type="button" class="exec-profile" data-profile="deep">deep</button>
-                    <button type="button" class="exec-profile" data-profile="forensics">forensics</button>
-                  </div>
-                  <div class="runbook-block">
-                    <label class="runbook-label" for="runbook-input">Runbook (one step per line; prefix with <code>agent:</code> for AI step)</label>
-                    <textarea id="runbook-input" spellcheck="false" placeholder="git status&#10;npm run build&#10;agent: Summarize failures and next action."></textarea>
-                    <div class="runbook-row">
-                      <label class="inline-check"><input type="checkbox" id="runbook-continue"> Continue on error</label>
-                      <button type="button" id="btn-runbook-sample">Load sample</button>
-                      <button type="button" id="btn-runbook-clear">Clear</button>
-                      <button type="button" id="btn-runbook-run" class="primary">Run runbook</button>
-                    </div>
-                  </div>
-                </details>
+                <div class="provider-readiness-row" id="provider-readiness" role="status" aria-live="polite">Loading provider status...</div>
                 <main class="terminal" id="terminal" aria-live="polite">
                   <div class="terminal-empty" id="terminal-empty">
                     <div class="empty-icon" aria-hidden="true">[#]</div>
@@ -199,61 +141,15 @@ export const WEB_HTML = `<!doctype html>
         </section>
 
         <section id="panel-tools" class="panel" role="tabpanel" aria-labelledby="tab-tools-label">
-          <span id="tab-tools-label" class="sr-only">Tools and API</span>
+          <span id="tab-tools-label" class="sr-only">Tools</span>
           <div class="panel-scroll">
             <div class="panel-inner panel-inner-wide panel-inner-tools">
-              <div class="tools-api-stack">
-                <div class="split-cards tools-api-grid tools-api-grid-dual">
-                  <div class="card api-doc-card">
-                    <div class="card-header">
-                      <h3 class="h3">HTTP API reference</h3>
-                      <p class="muted card-lead">Grouped endpoints. Row copies the path. Expand for raw OpenAPI-style export.</p>
-                    </div>
-                    <div id="api-doc-mount" class="api-doc-mount"></div>
-                    <details class="raw-api-details">
-                      <summary>Raw <code>/api/routes</code> JSON</summary>
-                      <pre id="routes-pre" class="code code-tight routes-json"></pre>
-                    </details>
-                  </div>
-                  <div class="card tools-card">
-                    <div class="card-header">
-                      <h3 class="h3">Tool registry</h3>
-                      <label class="tool-filter-label">Filter <input type="search" id="tool-filter" class="tool-filter" placeholder="Name or description..." autocomplete="off"></label>
-                    </div>
-                    <div id="tools-mount" class="tools-mount"></div>
-                  </div>
+              <div class="card tools-card">
+                <div class="card-header">
+                  <h3 class="h3">Tools</h3>
+                  <label class="tool-filter-label">Filter <input type="search" id="tool-filter" class="tool-filter" placeholder="Name or description..." autocomplete="off"></label>
                 </div>
-                <div class="card engineering-card engineering-card-wide">
-                  <div class="card-header engineering-card-header">
-                    <h3 class="h3">Engineering readiness</h3>
-                    <p class="muted card-lead engineering-card-lead">Offline-first diagnostics for VM baseline, full-stack/API, DevOps, network, and defensive security workflows.</p>
-                  </div>
-                  <div class="engineering-controls">
-                    <label>Suite
-                      <select id="engineering-suite">
-                        <option value="all">all</option>
-                        <option value="vm">vm</option>
-                        <option value="fullstack">fullstack</option>
-                        <option value="devops">devops</option>
-                        <option value="network">network</option>
-                        <option value="security">security</option>
-                      </select>
-                    </label>
-                    <label>Profile
-                      <select id="engineering-profile">
-                        <option value="standard">standard</option>
-                        <option value="deep">deep</option>
-                      </select>
-                    </label>
-                    <div class="engineering-btns">
-                      <button type="button" id="btn-engineering-readiness">Readiness snapshot</button>
-                      <button type="button" id="btn-engineering-run" class="primary">Run challenge</button>
-                    </div>
-                  </div>
-                  <div id="engineering-status" class="status"></div>
-                  <div id="engineering-summary" class="engineering-summary muted"></div>
-                  <pre id="engineering-pre" class="code code-tight engineering-json"></pre>
-                </div>
+                <div id="tools-mount" class="tools-mount"></div>
               </div>
             </div>
           </div>
@@ -267,25 +163,25 @@ export const WEB_HTML = `<!doctype html>
 
 export const WEB_CSS = `:root {
   color-scheme: dark;
-  --bg: #040807;
-  --bg-elevated: #0a120f;
-  --panel: #0c1512;
-  --panel-2: #101c18;
-  --line: #1e3d2f;
-  --text: #b4f5cc;
-  --muted: #4d8063;
-  --accent: #00ff88;
-  --accent-dim: #00c770;
-  --accent-soft: rgba(0, 255, 136, 0.15);
-  --cyan: #2ef3d9;
-  --terminal-bg: #020805;
-  --reply-shell: #5cff9a;
-  --reply-chat: #7afcff;
-  --warn: #ffe04d;
-  --bad: #ff4d7d;
-  --shadow: rgba(0, 0, 0, 0.5);
-  --shadow-deep: rgba(0, 0, 0, 0.72);
-  --glow: 0 0 18px rgba(0, 255, 136, 0.22);
+  --bg: #2a211c;
+  --bg-elevated: #3a2e28;
+  --panel: #3a2e28;
+  --panel-2: #4a342c;
+  --line: #6b5346;
+  --text: #f6e4d4;
+  --muted: #c4a894;
+  --accent: #d97757;
+  --accent-dim: #a3563c;
+  --accent-soft: rgba(217, 119, 87, 0.18);
+  --cyan: #e8b56a;
+  --terminal-bg: #241c18;
+  --reply-shell: #f6d7a8;
+  --reply-chat: #f6e4d4;
+  --warn: #e8b56a;
+  --bad: #e07a6a;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --shadow-deep: rgba(0, 0, 0, 0.65);
+  --glow: 0 0 18px rgba(217, 119, 87, 0.22);
   --sidebar-w: 264px;
   --mainbar-h: 56px;
   --radius-lg: 16px;
@@ -336,12 +232,12 @@ body::before {
       0deg,
       transparent 0,
       transparent 2px,
-      rgba(0, 255, 136, 0.028) 2px,
-      rgba(0, 255, 136, 0.028) 4px
+      rgba(217, 119, 87, 0.04) 2px,
+      rgba(217, 119, 87, 0.04) 4px
     ),
-    radial-gradient(55% 42% at 50% -8%, rgba(0, 255, 136, 0.09), transparent 58%),
-    radial-gradient(45% 35% at 102% 96%, rgba(46, 243, 217, 0.06), transparent 52%),
-    linear-gradient(168deg, #030604 0%, var(--bg) 45%, #010302 100%);
+    radial-gradient(55% 42% at 50% -8%, rgba(217, 119, 87, 0.12), transparent 58%),
+    radial-gradient(45% 35% at 102% 96%, rgba(232, 181, 106, 0.08), transparent 52%),
+    linear-gradient(168deg, #1a1411 0%, var(--bg) 45%, #140f0c 100%);
   z-index: 0;
 }
 
@@ -387,7 +283,7 @@ code {
   gap: 12px;
   padding: 20px 14px 22px;
   background: linear-gradient(180deg, #0b1512 0%, #08100d 52%, var(--terminal-bg) 100%);
-  border-right: 1px solid rgba(0, 255, 136, 0.18);
+  border-right: 1px solid rgba(217, 119, 87, 0.28);
   box-shadow: 4px 0 28px var(--shadow-deep);
 }
 
@@ -404,7 +300,7 @@ code {
   font-family: var(--font-mono);
   color: var(--accent);
   text-transform: uppercase;
-  text-shadow: 0 0 20px rgba(0, 255, 136, 0.45), var(--glow);
+  text-shadow: 0 0 18px rgba(217, 119, 87, 0.35);
 }
 .brand-tag {
   font-size: 10px;
@@ -576,8 +472,8 @@ code {
   font-weight: 600;
   font-family: var(--font-mono);
 }
-.pill.ok { color: var(--accent); border-color: var(--accent); text-shadow: 0 0 8px rgba(0, 255, 136, 0.4); }
-.pill.bad { color: var(--bad); border-color: rgba(255, 77, 125, 0.5); text-shadow: 0 0 8px rgba(255, 77, 125, 0.35); }
+.pill.ok { color: var(--accent); border-color: var(--accent); }
+.pill.bad { color: var(--bad); border-color: rgba(224, 122, 106, 0.7); }
 
 .main-body {
   flex: 1;
@@ -1392,17 +1288,17 @@ button.muted-link:hover {
   gap: 10px;
 }
 button.primary {
-  background: linear-gradient(180deg, #00ff94 0%, #00aa66 52%, #007748 100%);
-  border-color: rgba(0, 255, 136, 0.55);
-  color: #041208;
+  background: linear-gradient(180deg, #e8b56a 0%, #d97757 52%, #a3563c 100%);
+  border-color: rgba(217, 119, 87, 0.7);
+  color: #2a211c;
   font-weight: 700;
   text-shadow: none;
-  box-shadow: 0 0 16px rgba(0, 255, 136, 0.35);
+  box-shadow: 0 0 16px rgba(217, 119, 87, 0.28);
 }
 button.primary:hover {
-  background: linear-gradient(180deg, #5cffb0 0%, #00c978 52%, #008f54 100%);
+  background: linear-gradient(180deg, #f6d7a8 0%, #e09458 52%, #c46848 100%);
   border-color: var(--accent);
-  color: #020604;
+  color: #2a211c;
 }
 button.danger {
   background: rgba(80, 8, 20, 0.45);
@@ -2106,9 +2002,9 @@ export const WEB_JS = `
   const form = document.getElementById('command-form');
   const input = document.getElementById('command-input');
   const state = document.getElementById('state');
+  const brandTag = document.getElementById('brand-tag');
   const cwd = document.getElementById('cwd');
   const appVer = document.getElementById('app-ver');
-  const providerQuick = document.getElementById('provider-quick');
   const providerReadiness = document.getElementById('provider-readiness');
   const sidebar = document.getElementById('sidebar');
   const sidebarBackdrop = document.getElementById('sidebar-backdrop');
@@ -2120,29 +2016,11 @@ export const WEB_JS = `
   const shellSessionsMount = document.getElementById('shell-sessions-mount');
   const shellSessionsStatus = document.getElementById('shell-sessions-status');
   const sessionsStatus = document.getElementById('sessions-status');
-  const apiDocMount = document.getElementById('api-doc-mount');
-  const routesPre = document.getElementById('routes-pre');
   const toolsMount = document.getElementById('tools-mount');
   const toolFilter = document.getElementById('tool-filter');
-  const commandMode = document.getElementById('command-mode');
-  const shellRuntime = document.getElementById('shell-runtime');
-  const timeoutSec = document.getElementById('timeout-sec');
-  const maxCharsInput = document.getElementById('max-chars');
-  const cwdOverride = document.getElementById('cwd-override');
-  const executionProfiles = document.getElementById('execution-profiles');
-  const runbookInput = document.getElementById('runbook-input');
-  const runbookContinue = document.getElementById('runbook-continue');
-  const btnRunbookSample = document.getElementById('btn-runbook-sample');
-  const btnRunbookClear = document.getElementById('btn-runbook-clear');
-  const btnRunbookRun = document.getElementById('btn-runbook-run');
   const btnClearTerminal = document.getElementById('btn-clear-terminal');
   const btnCopyLastOutput = document.getElementById('btn-copy-last-output');
   const btnExportTranscript = document.getElementById('btn-export-transcript');
-  const engineeringSuite = document.getElementById('engineering-suite');
-  const engineeringProfile = document.getElementById('engineering-profile');
-  const engineeringStatus = document.getElementById('engineering-status');
-  const engineeringSummary = document.getElementById('engineering-summary');
-  const engineeringPre = document.getElementById('engineering-pre');
   const sendBtn = form.querySelector('button[type="submit"]') || form.querySelector('button');
   var toolsListCache = [];
   var executionBusy = false;
@@ -2151,190 +2029,45 @@ export const WEB_JS = `
     terminal: 'Shell',
     settings: 'Settings',
     sessions: 'Sessions',
-    tools: 'Tools & API'
+    tools: 'Tools'
   };
-
-  const PROVIDERS = ['openai', 'anthropic', 'gemini', 'kimi', 'grok', 'openrouter', 'ollama'];
-  const EXEC_PREFS_KEY = 'yamx.web.exec-prefs.v1';
-  const EXEC_DEFAULTS = {
-    shell: 'auto',
-    timeoutSec: 120,
-    maxChars: 80000,
-    cwd: '',
-    runbookContinue: false
-  };
-  const EXEC_PROFILE_PRESETS = {
-    balanced: { shell: 'auto', timeoutSec: 120, maxChars: 80000 },
-    fast: { shell: 'auto', timeoutSec: 45, maxChars: 30000 },
-    deep: { shell: 'auto', timeoutSec: 300, maxChars: 220000 },
-    forensics: { shell: 'auto', timeoutSec: 420, maxChars: 350000 }
-  };
-
-  function populateProviderQuickOptions() {
-    if (!providerQuick) return;
-    providerQuick.innerHTML = '';
-    PROVIDERS.forEach(function (name) {
-      var opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      providerQuick.appendChild(opt);
-    });
-  }
-
-  function syncProviderQuickSelect(providerName) {
-    if (!providerQuick) return;
-    var v = String(providerName || '').toLowerCase().trim();
-    if (!v) return;
-    if (PROVIDERS.indexOf(v) === -1) {
-      var found = false;
-      for (var i = 0; i < providerQuick.options.length; i++) {
-        if (providerQuick.options[i].value === v) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        var o = document.createElement('option');
-        o.value = v;
-        o.textContent = v;
-        providerQuick.appendChild(o);
-      }
-    }
-    providerQuick.value = v;
-  }
 
   function renderProviderReadiness(data) {
     if (!providerReadiness) return;
-    if (data.providerUsesApiKey !== true && data.providerUsesApiKey !== false) {
-      providerReadiness.textContent =
-        'Provider status unavailable (restart the YamX web server after upgrade).';
+    if (!data || typeof data.agentCanRun !== 'boolean') {
+      providerReadiness.textContent = 'Model status unavailable.';
       providerReadiness.className = 'provider-readiness-row';
       return;
     }
-    if (
-      typeof data.agentCanRun !== 'boolean' ||
-      typeof data.providerApiKeyConfigured !== 'boolean'
-    ) {
-      providerReadiness.textContent =
-        'Provider readiness incomplete (restart the YamX web server after upgrade).';
-      providerReadiness.className = 'provider-readiness-row';
-      return;
-    }
-
-    var usesKey = data.providerUsesApiKey === true;
-    var configured = !!data.providerApiKeyConfigured;
-    var canRun = !!data.agentCanRun;
-    var warm = !!data.sessionWarm;
-    var prov = String(data.provider || '').trim() || '?';
     var model = String(data.model || '').trim();
-    var modelLbl = model ? model : 'provider default';
     var hint = String(data.providerHint || '').trim();
-
-    var line;
-    var cls;
-    if (!usesKey) {
-      line =
-        prov +
-        ' / ' +
-        modelLbl +
-        ' · local (Ollama) · no cloud API key required · shell + agent use your local runtime';
-      cls = 'provider-readiness-ok';
-    } else if (warm) {
-      line =
-        prov +
-        ' / ' +
-        modelLbl +
-        ' · API key configured · agent session active — ready';
-      cls = 'provider-readiness-ok';
-    } else if (canRun && configured) {
-      line =
-        prov +
-        ' / ' +
-        modelLbl +
-        ' · API key configured — ready (first agent message opens the session)';
-      cls = 'provider-readiness-ok';
-    } else {
-      line =
-        prov +
-        ' / ' +
-        modelLbl +
-        ' · not configured — ' +
-        (hint || 'add an API key under Settings, Providers, or set the env var for this provider');
-      cls = 'provider-readiness-bad';
+    if (data.agentCanRun) {
+      providerReadiness.textContent = (model || 'model') + ' · endpoint ready';
+      providerReadiness.className = 'provider-readiness-row provider-readiness-ok';
+      return;
     }
-    providerReadiness.textContent = line;
-    providerReadiness.className = 'provider-readiness-row ' + cls;
+    providerReadiness.textContent = hint || 'Add a model under Settings, Model.';
+    providerReadiness.className = 'provider-readiness-row provider-readiness-bad';
   }
 
   function text(value) {
     return String(value == null ? '' : value);
   }
 
-  function clampInt(value, min, max, fallback) {
-    var n = parseInt(String(value == null ? '' : value), 10);
-    if (!isFinite(n)) return fallback;
-    if (n < min) return min;
-    if (n > max) return max;
-    return n;
+  function crewLabel(data) {
+    var provider = String((data && data.provider) || '');
+    var model = String((data && data.model) || '');
+    if (!data || data.agentCanRun === false || !provider || provider === 'offline' || !model || model === 'local') {
+      return 'local · offline';
+    }
+    return model + ' · ' + provider;
   }
 
-  function executionFormState() {
-    var timeout = clampInt(timeoutSec && timeoutSec.value, 1, 600, EXEC_DEFAULTS.timeoutSec);
-    var maxOut = clampInt(maxCharsInput && maxCharsInput.value, 1000, 500000, EXEC_DEFAULTS.maxChars);
-    var shell = String((shellRuntime && shellRuntime.value) || EXEC_DEFAULTS.shell).trim().toLowerCase();
-    var cwdRaw = String((cwdOverride && cwdOverride.value) || '').trim();
-    return {
-      shell: shell || EXEC_DEFAULTS.shell,
-      timeoutSec: timeout,
-      timeoutMs: timeout * 1000,
-      maxChars: maxOut,
-      cwd: cwdRaw,
-      runbookContinue: !!(runbookContinue && runbookContinue.checked)
-    };
-  }
-
-  function applyExecutionFormState(next) {
-    var merged = Object.assign({}, EXEC_DEFAULTS, next || {});
-    if (shellRuntime) shellRuntime.value = String(merged.shell || EXEC_DEFAULTS.shell);
-    if (timeoutSec) timeoutSec.value = String(clampInt(merged.timeoutSec, 1, 600, EXEC_DEFAULTS.timeoutSec));
-    if (maxCharsInput) maxCharsInput.value = String(clampInt(merged.maxChars, 1000, 500000, EXEC_DEFAULTS.maxChars));
-    if (cwdOverride) cwdOverride.value = String(merged.cwd || '');
-    if (runbookContinue) runbookContinue.checked = !!merged.runbookContinue;
-  }
-
-  function loadExecutionPrefs() {
-    try {
-      var raw = window.localStorage.getItem(EXEC_PREFS_KEY);
-      if (!raw) return;
-      var parsed = JSON.parse(raw);
-      applyExecutionFormState(parsed);
-    } catch (_err) {}
-  }
-
-  function saveExecutionPrefs() {
-    try {
-      var s = executionFormState();
-      window.localStorage.setItem(EXEC_PREFS_KEY, JSON.stringify({
-        shell: s.shell,
-        timeoutSec: s.timeoutSec,
-        maxChars: s.maxChars,
-        cwd: s.cwd,
-        runbookContinue: s.runbookContinue
-      }));
-    } catch (_err) {}
-  }
-
-  function applyExecutionProfile(name) {
-    var preset = EXEC_PROFILE_PRESETS[name];
-    if (!preset) return;
-    applyExecutionFormState({
-      shell: preset.shell,
-      timeoutSec: preset.timeoutSec,
-      maxChars: preset.maxChars
-    });
-    saveExecutionPrefs();
-    setState('profile: ' + name, 'ok');
-    setTimeout(function () { refreshState().catch(function () {}); }, 900);
+  function showCrew(data) {
+    if (!data || !data.provider) return;
+    var label = crewLabel(data);
+    if (brandTag) brandTag.textContent = label;
+    setState(label, data && data.allowDangerous ? 'bad' : 'ok');
   }
 
   function setState(label, cls) {
@@ -2359,13 +2092,6 @@ export const WEB_JS = `
     }
     apply(sessionsStatus);
     apply(shellSessionsStatus);
-  }
-
-  function setEngineeringStatus(msg, kind) {
-    if (!engineeringStatus) return;
-    engineeringStatus.textContent = msg || '';
-    engineeringStatus.className = 'status show ' + (kind || '');
-    if (!msg) engineeringStatus.className = 'status';
   }
 
   function getPath(obj, path) {
@@ -2411,7 +2137,7 @@ export const WEB_JS = `
 
     if (name === 'settings') loadSettings();
     if (name === 'sessions') loadSessions();
-    if (name === 'tools') loadToolsApi();
+    if (name === 'tools') loadTools();
     if (name === 'terminal') {
       loadSessions();
       if (input) input.focus();
@@ -2450,35 +2176,6 @@ export const WEB_JS = `
     if (/^[a-zA-Z0-9_.\\/~+-]+$/.test(t) && t.length < 72 && !/\\s/.test(t)) return 'Running command...';
     if (t.length > 96 || /[?]/.test(t) || /^(why|how|what|explain|write|create|fix|help|show|list|describe)\\b/i.test(t)) return 'YamX is responding...';
     return 'Working...';
-  }
-  function executionModeValue(preferred) {
-    var mode = String(preferred || (commandMode && commandMode.value) || 'auto').trim().toLowerCase();
-    if (mode !== 'shell' && mode !== 'agent') return 'auto';
-    return mode;
-  }
-
-  function buildExecutionOverrides(overrides) {
-    var src = overrides || executionFormState();
-    var payload = {
-      shell: String(src.shell || '').trim().toLowerCase(),
-      timeoutMs: clampInt(src.timeoutMs, 1000, 600000, EXEC_DEFAULTS.timeoutSec * 1000),
-      maxChars: clampInt(src.maxChars, 1000, 500000, EXEC_DEFAULTS.maxChars),
-      cwd: String(src.cwd || '').trim()
-    };
-    if (!payload.shell || payload.shell === 'auto') delete payload.shell;
-    if (!payload.cwd) delete payload.cwd;
-    return payload;
-  }
-
-  function buildExecutionRequest(rawCommand, preferredMode, overrides) {
-    var mode = executionModeValue(preferredMode);
-    var ext = buildExecutionOverrides(overrides);
-    if (mode === 'agent') return { mode: mode, endpoint: '/api/chat', payload: { message: rawCommand } };
-    if (mode === 'shell') {
-      var forced = /^run:\\s+/i.test(rawCommand) ? rawCommand : ('run: ' + rawCommand);
-      return { mode: mode, endpoint: '/api/command', payload: Object.assign({ command: forced }, ext) };
-    }
-    return { mode: mode, endpoint: '/api/command', payload: Object.assign({ command: rawCommand }, ext) };
   }
 
   function metaLineText(result) {
@@ -2577,10 +2274,9 @@ export const WEB_JS = `
     const res = await fetch('/api/state');
     if (!res.ok) throw new Error('state failed');
     const data = await res.json();
-    if (cwd) cwd.textContent = 'cwd: ' + data.cwd + (data.provider ? ' | ' + data.provider + (data.model ? ' / ' + data.model : '') : '');
-    syncProviderQuickSelect(data.provider);
+    if (cwd) cwd.textContent = 'cwd: ' + data.cwd + (data.model ? ' | ' + data.model : '');
     renderProviderReadiness(data);
-    setState(data.allowDangerous ? 'danger on' : 'ready', data.allowDangerous ? 'bad' : 'ok');
+    showCrew(data);
   }
 
   async function refreshInfo() {
@@ -2596,37 +2292,23 @@ export const WEB_JS = `
   function setExecutionBusy(on) {
     var busy = !!on;
     executionBusy = busy;
-    var profileBtns = executionProfiles ? executionProfiles.querySelectorAll('button.exec-profile') : [];
     if (input) input.disabled = busy;
     if (sendBtn) sendBtn.disabled = busy;
-    if (commandMode) commandMode.disabled = busy;
-    if (shellRuntime) shellRuntime.disabled = busy;
-    if (timeoutSec) timeoutSec.disabled = busy;
-    if (maxCharsInput) maxCharsInput.disabled = busy;
-    if (cwdOverride) cwdOverride.disabled = busy;
-    if (runbookInput) runbookInput.disabled = busy;
-    if (runbookContinue) runbookContinue.disabled = busy;
-    if (btnRunbookRun) btnRunbookRun.disabled = busy;
-    if (btnRunbookSample) btnRunbookSample.disabled = busy;
-    if (btnRunbookClear) btnRunbookClear.disabled = busy;
     if (btnClearTerminal) btnClearTerminal.disabled = busy;
     if (btnCopyLastOutput) btnCopyLastOutput.disabled = busy;
     if (btnExportTranscript) btnExportTranscript.disabled = busy;
-    if (providerQuick) providerQuick.disabled = busy;
-    profileBtns.forEach(function (btn) { btn.disabled = busy; });
   }
 
-  async function executeTurn(rawCommand, preferredMode, overrides, displayCommand) {
+  async function executeTurn(rawCommand) {
     var command = String(rawCommand || '').trim();
     if (!command) return null;
-    var req = buildExecutionRequest(command, preferredMode, overrides);
-    setState(req.mode === 'agent' ? 'thinking' : 'running', '');
-    var turn = startTurn(displayCommand || command);
+    setState('running', '');
+    var turn = startTurn(command);
     try {
-      var res = await fetch(req.endpoint, {
+      var res = await fetch('/api/command', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(req.payload)
+        body: JSON.stringify({ command: command })
       });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok) {
@@ -2644,9 +2326,8 @@ export const WEB_JS = `
         return failure;
       }
       turn.finish(data);
-      if (cwd) cwd.textContent = 'cwd: ' + (data.cwd || '.') + (data.provider ? ' | ' + data.provider + (data.model ? ' / ' + data.model : '') : '');
-      syncProviderQuickSelect(data.provider);
-      setState(data.allowDangerous ? 'danger on' : 'ready', data.allowDangerous ? 'bad' : 'ok');
+      if (cwd) cwd.textContent = 'cwd: ' + (data.cwd || '.') + (data.model ? ' | ' + data.model : '');
+      showCrew(data);
       refreshState().catch(function () {});
       return data;
     } catch (error) {
@@ -2670,7 +2351,6 @@ export const WEB_JS = `
     var command = input.value.trim();
     if (!command) return;
     input.value = '';
-    saveExecutionPrefs();
     setExecutionBusy(true);
     try {
       await executeTurn(command);
@@ -2679,91 +2359,6 @@ export const WEB_JS = `
       input.focus();
     }
   });
-
-  function parseRunbookLines(raw) {
-    return String(raw || '')
-      .split(/\\r?\\n/)
-      .map(function (line) { return line.trim(); })
-      .filter(function (line) { return line && !/^#/.test(line); });
-  }
-
-  function parseRunbookStep(line) {
-    var row = String(line || '').trim();
-    if (!row) return null;
-    if (/^agent:\\s+/i.test(row)) return { mode: 'agent', command: row.replace(/^agent:\\s+/i, '').trim() };
-    if (/^shell:\\s+/i.test(row)) return { mode: 'shell', command: row.replace(/^shell:\\s+/i, '').trim() };
-    if (/^auto:\\s+/i.test(row)) return { mode: 'auto', command: row.replace(/^auto:\\s+/i, '').trim() };
-    return { mode: 'shell', command: row };
-  }
-
-  async function runRunbook() {
-    var lines = parseRunbookLines(runbookInput && runbookInput.value);
-    if (!lines.length) {
-      setState('runbook empty', 'bad');
-      setTimeout(function () { refreshState().catch(function () {}); }, 900);
-      return;
-    }
-    saveExecutionPrefs();
-    var baseExec = executionFormState();
-    var continueOnError = !!(runbookContinue && runbookContinue.checked);
-    var halted = false;
-    setExecutionBusy(true);
-    try {
-      for (var i = 0; i < lines.length; i++) {
-        var parsed = parseRunbookStep(lines[i]);
-        if (!parsed || !parsed.command) continue;
-        var label = '[step ' + (i + 1) + '/' + lines.length + '] ' + parsed.command;
-        var result = await executeTurn(parsed.command, parsed.mode, baseExec, label);
-        var failed = !result || result.kind === 'error' || result.ok === false || result.blocked || result.timedOut || (typeof result.code === 'number' && result.code !== 0);
-        if (failed && !continueOnError) {
-          halted = true;
-          setState('runbook halted', 'bad');
-          break;
-        }
-      }
-      if (!halted) setState('runbook done', 'ok');
-    } finally {
-      setExecutionBusy(false);
-      input.focus();
-    }
-  }
-
-  if (btnRunbookRun) {
-    btnRunbookRun.addEventListener('click', function () {
-      runRunbook().catch(function (err) {
-        setState('runbook error', 'bad');
-        startTurn('[runbook] failure').finish({
-          ok: false,
-          kind: 'error',
-          blocked: false,
-          code: 1,
-          output: String(err && err.message ? err.message : err),
-          cwd: '.',
-          allowDangerous: false
-        });
-      });
-    });
-  }
-
-  if (btnRunbookSample) {
-    btnRunbookSample.addEventListener('click', function () {
-      if (!runbookInput) return;
-      runbookInput.value = [
-        'git status',
-        'npm run build',
-        'docker ps',
-        'agent: Summarize results and recommend next action.'
-      ].join('\\n');
-    });
-  }
-
-  if (btnRunbookClear) {
-    btnRunbookClear.addEventListener('click', function () {
-      if (!runbookInput) return;
-      runbookInput.value = '';
-      runbookInput.focus();
-    });
-  }
 
   function clearTerminalView() {
     terminal.innerHTML = [
@@ -2913,60 +2508,107 @@ export const WEB_JS = `
 
     var s = cfg.settings || {};
 
-    addSettingsTab('general', 'General', function (pan) {
+    addSettingsTab('model', 'Model', function (pan) {
       var box = document.createElement('div');
       box.className = 'form-section';
       var h = document.createElement('h4');
-      h.textContent = 'Default model';
+      h.textContent = 'Custom model';
       box.appendChild(h);
-      var inpDefProv = document.createElement('input');
-      inpDefProv.type = 'text';
-      inpDefProv.dataset.cfgPath = 'defaultProvider';
-      inpDefProv.value = cfg.defaultProvider || '';
-      addField(box, 'Default provider', inpDefProv);
-      var inpDefMod = document.createElement('input');
-      inpDefMod.type = 'text';
-      inpDefMod.dataset.cfgPath = 'defaultModel';
-      inpDefMod.value = cfg.defaultModel || '';
-      addField(box, 'Default model id', inpDefMod);
-      pan.appendChild(box);
-    });
-
-    addSettingsTab('providers', 'Providers', function (pan) {
-      var box = document.createElement('div');
-      box.className = 'form-section';
-      var h = document.createElement('h4');
-      h.textContent = 'API keys & models';
-      box.appendChild(h);
-      PROVIDERS.forEach(function (name) {
-        var prov = (cfg.providers && cfg.providers[name]) || {};
-        var sub = document.createElement('div');
-        sub.className = 'provider-block';
-        var ph = document.createElement('strong');
-        ph.textContent = name;
-        sub.appendChild(ph);
-        var keyIn = document.createElement('input');
-        keyIn.type = 'password';
-        keyIn.autocomplete = 'new-password';
-        keyIn.placeholder = (prov.apiKeyPresent || prov.apiKey === '********') ? '******** (enter new key to replace)' : 'API key (optional)';
-        keyIn.dataset.cfgPath = 'providers.' + name + '.apiKey';
-        keyIn.dataset.optionalSecret = '1';
-        addField(sub, 'API key', keyIn);
-        var modIn = document.createElement('input');
-        modIn.type = 'text';
-        modIn.dataset.cfgPath = 'providers.' + name + '.model';
-        modIn.value = prov.model || '';
-        addField(sub, 'Model override', modIn);
-        if (name === 'ollama') {
-          var urlIn = document.createElement('input');
-          urlIn.type = 'text';
-          urlIn.dataset.cfgPath = 'providers.' + name + '.baseUrl';
-          urlIn.value = prov.baseUrl || '';
-          addField(sub, 'Base URL', urlIn);
-        }
-        box.appendChild(sub);
+      var lead = document.createElement('p');
+      lead.className = 'muted';
+      lead.textContent = 'Any OpenAI-compatible chat model. Leave the API key blank to keep the saved key.';
+      box.appendChild(lead);
+      var custom = (cfg.providers && cfg.providers.custom) || {};
+      var baseIn = document.createElement('input');
+      baseIn.type = 'text';
+      baseIn.value = custom.baseUrl || '';
+      baseIn.placeholder = 'https://api.example.com/v1';
+      addField(box, 'Base URL', baseIn);
+      var keyIn = document.createElement('input');
+      keyIn.type = 'password';
+      keyIn.autocomplete = 'new-password';
+      keyIn.placeholder = (custom.apiKeyPresent || custom.apiKey === '********') ? '******** (enter a new key to replace)' : 'API key (optional)';
+      addField(box, 'API key', keyIn);
+      var modelIn = document.createElement('input');
+      modelIn.type = 'text';
+      modelIn.value = custom.model || '';
+      modelIn.placeholder = 'any model id';
+      addField(box, 'Model name', modelIn);
+      var hdr = document.createElement('textarea');
+      hdr.rows = 4;
+      var lines = [];
+      var extra = custom.extraHeaders || {};
+      Object.keys(extra).forEach(function (key) {
+        lines.push(key + ': ' + String(extra[key] == null ? '' : extra[key]));
       });
+      hdr.value = lines.join('\\n');
+      hdr.placeholder = 'Header-Name: value';
+      addField(box, 'Extra headers (one Name: value per line)', hdr);
+      var row = document.createElement('div');
+      row.className = 'btn-row';
+      var saveModel = document.createElement('button');
+      saveModel.type = 'button';
+      saveModel.className = 'primary';
+      saveModel.textContent = 'Save model';
+      var clearModel = document.createElement('button');
+      clearModel.type = 'button';
+      clearModel.textContent = 'Disconnect';
+      row.appendChild(saveModel);
+      row.appendChild(clearModel);
+      box.appendChild(row);
       pan.appendChild(box);
+      function headerRecord() {
+        var headers = {};
+        String(hdr.value || '').split(/\\n/).forEach(function (line) {
+          var rowLine = String(line || '').trim();
+          if (!rowLine) return;
+          var idx = rowLine.indexOf(':');
+          if (idx <= 0) return;
+          var name = rowLine.slice(0, idx).trim();
+          var value = rowLine.slice(idx + 1).trim();
+          if (name) headers[name] = value;
+        });
+        return headers;
+      }
+      saveModel.addEventListener('click', function () {
+        setSettingsStatus('Saving model...', 'ok');
+        fetch('/api/connect', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            baseUrl: baseIn.value,
+            apiKey: keyIn.value,
+            model: modelIn.value,
+            extraHeaders: headerRecord()
+          })
+        }).then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            if (!res.ok) throw new Error((data && data.error) || 'save failed');
+            renderSettingsForm(data.config || {});
+            setSettingsStatus('Model saved. The next message uses it.', 'ok');
+            refreshState().catch(function () {});
+          });
+        }).catch(function (e) {
+          setSettingsStatus(e.message || String(e), 'err');
+        });
+      });
+      clearModel.addEventListener('click', function () {
+        setSettingsStatus('Disconnecting...', 'ok');
+        fetch('/api/connect', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ clear: true })
+        }).then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            if (!res.ok) throw new Error((data && data.error) || 'disconnect failed');
+            renderSettingsForm(data.config || {});
+            setSettingsStatus('Disconnected. YamX is offline until you add a model.', 'ok');
+            refreshState().catch(function () {});
+          });
+        }).catch(function (e) {
+          setSettingsStatus(e.message || String(e), 'err');
+        });
+      });
     });
 
     addSettingsTab('behavior', 'Behavior', function (pan) {
@@ -3091,6 +2733,18 @@ export const WEB_JS = `
       saMod.dataset.cfgPath = 'settings.subagents.defaultModel';
       saMod.value = (s.subagents && s.subagents.defaultModel) || '';
       addField(sa, 'Default subagent model', saMod);
+      var saParallel = document.createElement('input');
+      saParallel.type = 'number';
+      saParallel.min = '1';
+      saParallel.dataset.cfgPath = 'settings.subagents.maxParallel';
+      saParallel.value = String((s.subagents && s.subagents.maxParallel) || 3);
+      addField(sa, 'Max parallel readers', saParallel);
+      var saIters = document.createElement('input');
+      saIters.type = 'number';
+      saIters.min = '1';
+      saIters.dataset.cfgPath = 'settings.subagents.maxIterations';
+      saIters.value = String((s.subagents && s.subagents.maxIterations) || 12);
+      addField(sa, 'Max iterations per subagent', saIters);
       pan.appendChild(sa);
     });
 
@@ -3131,6 +2785,20 @@ export const WEB_JS = `
       } else val = el.value;
 
       if (el.dataset.optionalSecret && (!val || !String(val).trim())) return;
+
+      if (el.dataset.extraHeaders) {
+        var headers = {};
+        String(val || '').split(/\\n/).forEach(function (line) {
+          var row = String(line || '').trim();
+          if (!row) return;
+          var idx = row.indexOf(':');
+          if (idx <= 0) return;
+          var hk = row.slice(0, idx).trim();
+          var hv = row.slice(idx + 1).trim();
+          if (hk) headers[hk] = hv;
+        });
+        val = headers;
+      }
 
       if (path === 'settings.allowedShellCommands' || path === 'settings.deniedShellPatterns') {
         var raw = String(val || '').split(/[\\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean);
@@ -3223,15 +2891,6 @@ export const WEB_JS = `
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  function httpMethodClass(m) {
-    var u = String(m || '').toUpperCase();
-    if (u === 'GET') return 'http-method m-get';
-    if (u === 'POST') return 'http-method m-post';
-    if (u === 'PATCH') return 'http-method m-patch';
-    if (u === 'DELETE') return 'http-method m-delete';
-    return 'http-method';
-  }
-
   function renderToolsList(filter) {
     var q = (filter || '').trim().toLowerCase();
     var shown = 0;
@@ -3249,77 +2908,6 @@ export const WEB_JS = `
       html += '</details>';
     });
     toolsMount.innerHTML = '<p class="muted tools-count">' + shown + ' / ' + toolsListCache.length + ' tools</p>' + html;
-  }
-
-  function renderEngineeringReport(report) {
-    if (!engineeringSummary || !engineeringPre) return;
-    if (!report || typeof report !== 'object') {
-      engineeringSummary.innerHTML = '<span class="bad">No report.</span>';
-      engineeringPre.textContent = '';
-      return;
-    }
-
-    var counts = report.counts || {};
-    var scores = report.domainScores || {};
-    var vmEvidence = (report.vmHint && report.vmHint.evidence) ? report.vmHint.evidence : [];
-    var recs = Array.isArray(report.recommendations) ? report.recommendations : [];
-
-    var summary = '';
-    summary += '<div class="engineering-summary-grid">';
-    summary += '<div><strong>Suite:</strong> <code>' + escapeHtml(report.suite || 'all') + '</code> ';
-    summary += '<strong>Profile:</strong> <code>' + escapeHtml(report.profile || 'standard') + '</code></div>';
-    summary += '<div><strong>Overall:</strong> <span class="' + (report.overallScore >= 85 ? 'ok' : report.overallScore >= 60 ? 'warn' : 'bad') + '">' + Number(report.overallScore || 0) + '/100</span></div>';
-    summary += '<div><strong>Checks:</strong> <span class="ok">pass ' + Number(counts.pass || 0) + '</span> | <span class="warn">warn ' + Number(counts.warn || 0) + '</span> | <span class="bad">fail ' + Number(counts.fail || 0) + '</span></div>';
-    summary += '<div><strong>Required failures:</strong> <span class="' + (Number(counts.requiredFail || 0) === 0 ? 'ok' : 'bad') + '">' + Number(counts.requiredFail || 0) + '</span></div>';
-    summary += '<div><strong>Domain scores:</strong> vm=' + Number(scores.vm || 0) + ', fullstack=' + Number(scores.fullstack || 0) + ', devops=' + Number(scores.devops || 0) + ', network=' + Number(scores.network || 0) + ', security=' + Number(scores.security || 0) + '</div>';
-    summary += '<div><strong>VM signal:</strong> ' + ((report.vmHint && report.vmHint.likelyVirtualized) ? '<span class="warn">likely virtualized</span>' : '<span class="ok">no explicit VM signature</span>') + '</div>';
-    if (vmEvidence.length) summary += '<div><strong>VM evidence:</strong> ' + escapeHtml(String(vmEvidence[0])) + '</div>';
-    if (recs.length) summary += '<div><strong>Top recommendation:</strong> ' + escapeHtml(String(recs[0])) + '</div>';
-    summary += '</div>';
-    engineeringSummary.innerHTML = summary;
-
-    engineeringPre.textContent = JSON.stringify(report, null, 2);
-  }
-
-  async function loadEngineeringReadiness(force) {
-    if (!engineeringPre) return;
-    setEngineeringStatus('Loading readiness...', 'ok');
-    if (!engineeringSummary) return;
-    engineeringSummary.innerHTML = '';
-    engineeringPre.textContent = 'Loading...';
-    try {
-      var res = await fetch('/api/engineering/readiness' + (force ? '?force=1' : ''));
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error((data && data.error) || 'readiness failed');
-      renderEngineeringReport(data.report || {});
-      setEngineeringStatus((data.report && data.report.ok) ? 'Readiness passed.' : 'Readiness has gaps.', (data.report && data.report.ok) ? 'ok' : 'err');
-    } catch (e) {
-      setEngineeringStatus('Readiness failed: ' + e.message, 'err');
-      engineeringPre.textContent = 'Error: ' + e.message;
-    }
-  }
-
-  async function runEngineeringChallenge(force) {
-    if (!engineeringPre) return;
-    var suite = engineeringSuite && engineeringSuite.value ? engineeringSuite.value : 'all';
-    var profile = engineeringProfile && engineeringProfile.value ? engineeringProfile.value : 'standard';
-    setEngineeringStatus('Running challenge...', 'ok');
-    if (engineeringSummary) engineeringSummary.innerHTML = '';
-    engineeringPre.textContent = 'Running...';
-    try {
-      var res = await fetch('/api/engineering/challenge', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ suite: suite, profile: profile, force: !!force })
-      });
-      var data = await res.json().catch(function () { return {}; });
-      if (!res.ok || !data.ok) throw new Error((data && data.error) || 'challenge failed');
-      renderEngineeringReport(data.report || {});
-      setEngineeringStatus((data.report && data.report.ok) ? 'Challenge passed for required checks.' : 'Challenge finished with required gaps.', (data.report && data.report.ok) ? 'ok' : 'err');
-    } catch (e) {
-      setEngineeringStatus('Challenge failed: ' + e.message, 'err');
-      engineeringPre.textContent = 'Error: ' + e.message;
-    }
   }
 
   async function sessionRowAction(ev) {
@@ -3450,62 +3038,19 @@ export const WEB_JS = `
     });
   });
 
-  async function loadToolsApi() {
-    if (apiDocMount) apiDocMount.innerHTML = 'Loading...';
-    routesPre.textContent = 'Loading...';
-    toolsMount.innerHTML = '';
+  async function loadTools() {
+    if (!toolsMount) return;
+    toolsMount.innerHTML = 'Loading...';
     try {
-      var r1 = await fetch('/api/routes');
-      var j1 = await r1.json();
-      routesPre.textContent = JSON.stringify(j1, null, 2);
-      if (apiDocMount && j1.groups) {
-        var docHtml = '';
-        j1.groups.forEach(function (g) {
-          docHtml += '<div class="api-group"><h4 class="api-group-title">' + escapeHtml(g.name) + '</h4>';
-          docHtml += '<table class="api-table"><thead><tr><th></th><th>Path</th><th>Body</th><th>Note</th></tr></thead><tbody>';
-          (g.endpoints || []).forEach(function (e) {
-            docHtml += '<tr class="api-row" data-path="' + escapeHtml(e.path) + '">';
-            docHtml += '<td><span class="' + httpMethodClass(e.method) + '">' + escapeHtml(e.method) + '</span></td>';
-            docHtml += '<td class="api-path"><code>' + escapeHtml(e.path) + '</code></td>';
-            docHtml += '<td class="api-body-hint">' + (e.body ? '<code>' + escapeHtml(e.body) + '</code>' : '-') + '</td>';
-            docHtml += '<td>' + escapeHtml(e.note || '') + '</td>';
-            docHtml += '</tr>';
-          });
-          docHtml += '</tbody></table></div>';
-        });
-        apiDocMount.innerHTML = docHtml;
-      } else if (apiDocMount) {
-        apiDocMount.textContent = 'No grouped routes in response.';
-      }
-      var r2 = await fetch('/api/tools');
-      var j2 = await r2.json();
-      toolsListCache = j2.tools || [];
+      var res = await fetch('/api/tools');
+      var data = await res.json();
+      if (!res.ok) throw new Error((data && data.error) || 'tools failed');
+      toolsListCache = data.tools || [];
       renderToolsList(toolFilter ? toolFilter.value : '');
-      await loadEngineeringReadiness(false);
     } catch (e) {
-      if (apiDocMount) apiDocMount.textContent = 'Error: ' + e.message;
-      routesPre.textContent = 'Error: ' + e.message;
-      if (engineeringPre) engineeringPre.textContent = 'Error: ' + e.message;
+      toolsMount.textContent = 'Error: ' + e.message;
     }
   }
-
-  if (executionProfiles) {
-    executionProfiles.querySelectorAll('button.exec-profile').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        applyExecutionProfile(btn.getAttribute('data-profile') || '');
-      });
-    });
-  }
-
-  [shellRuntime, timeoutSec, maxCharsInput, cwdOverride, runbookContinue].forEach(function (el) {
-    if (!el) return;
-    el.addEventListener('change', saveExecutionPrefs);
-    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-      el.addEventListener('input', function () {
-        if (el === cwdOverride) saveExecutionPrefs();
-      });
-    }
-  });
 
   if (toolFilter) {
     toolFilter.addEventListener('input', function () {
@@ -3513,65 +3058,6 @@ export const WEB_JS = `
     });
   }
 
-  var btnEngineeringReadiness = document.getElementById('btn-engineering-readiness');
-  if (btnEngineeringReadiness) {
-    btnEngineeringReadiness.addEventListener('click', function () {
-      loadEngineeringReadiness(true).catch(function (e) {
-        setEngineeringStatus(e.message || String(e), 'err');
-      });
-    });
-  }
-
-  var btnEngineeringRun = document.getElementById('btn-engineering-run');
-  if (btnEngineeringRun) {
-    btnEngineeringRun.addEventListener('click', function () {
-      runEngineeringChallenge(true).catch(function (e) {
-        setEngineeringStatus(e.message || String(e), 'err');
-      });
-    });
-  }
-
-  if (apiDocMount) {
-    apiDocMount.addEventListener('click', function (e) {
-      var row = e.target.closest('tr.api-row');
-      if (!row || !apiDocMount.contains(row)) return;
-      var path = row.getAttribute('data-path');
-      if (path && navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(path).catch(function () {});
-      }
-    });
-  }
-
-  if (providerQuick) {
-    populateProviderQuickOptions();
-    providerQuick.addEventListener('change', async function () {
-      var sel = String(providerQuick.value || '').trim();
-      if (!sel) return;
-      providerQuick.disabled = true;
-      setState('saving...', '');
-      try {
-        var res = await fetch('/api/config', {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ defaultProvider: sel })
-        });
-        var pdata = await res.json().catch(function () { return {}; });
-        if (!res.ok) throw new Error((pdata && pdata.error) ? String(pdata.error) : 'PATCH failed');
-        var defProvEl = settingsMount && settingsMount.querySelector('[data-cfg-path="defaultProvider"]');
-        if (defProvEl) defProvEl.value = sel;
-        await refreshState();
-        setSettingsStatus('Default provider: ' + sel, 'ok');
-      } catch (e) {
-        setState(e.message || 'save failed', 'bad');
-        refreshState().catch(function () {});
-      } finally {
-        if (providerQuick) providerQuick.disabled = executionBusy;
-      }
-    });
-  }
-
-  applyExecutionFormState(EXEC_DEFAULTS);
-  loadExecutionPrefs();
   refreshState().catch(function () {
     setState('error', 'bad');
     if (providerReadiness) {

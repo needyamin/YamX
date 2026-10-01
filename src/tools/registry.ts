@@ -11,6 +11,7 @@ import { fetchUrlTool } from './web.js';
 import { multiEdit, copyFile, moveFile, fileInfo, grepSearch, treeTool, patchFile, findReferences } from './advanced.js';
 import { codebaseAnalysis, projectIntel } from './intel.js';
 import { logInspect } from './logs.js';
+import { delegateTool } from './delegate.js';
 
 export interface Tool {
   definition: ToolDefinition;
@@ -56,6 +57,7 @@ export const allTools: Record<string, Tool> = {
   log_inspect: logInspect,
   project_intel: projectIntel,
   codebase_analysis: codebaseAnalysis,
+  delegate: delegateTool,
 };
 
 export function getToolDefinitions(): ToolDefinition[] {
@@ -78,5 +80,6 @@ export function getToolsByCategory(): Record<string, string[]> {
     Git: ['git_status', 'git_diff', 'git_commit', 'git_log', 'git_branch', 'git_stash'],
     Web: ['fetch_url'],
     Intelligence: ['project_intel', 'codebase_analysis', 'log_inspect', 'find_references'],
+    Crew: ['delegate'],
   };
 }

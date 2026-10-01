@@ -793,17 +793,76 @@ test('web server routes natural messages to the YamX agent', async () => {
   }
 });
 
+test('web chat saves a coding brief offline and sends it when a model is connected', async () => {
+  const { startYamxWebServer } = await import('../dist/web/server.js');
+  let called = false;
+  const offline = await startYamxWebServer({
+    host: '127.0.0.1',
+    port: 0,
+    providerOverride: {
+      name: 'offline',
+      modelId: 'local',
+      complete: async () => {
+        called = true;
+        return { content: 'should not run' };
+      },
+      stream: async function* () {},
+    },
+  });
+  try {
+    const result = await fetch(`${offline.url}/api/command`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'fix the bug' }),
+    }).then((res) => res.json());
+    assert.equal(result.kind, 'chat');
+    assert.match(result.output, /needs a model/i);
+    assert.equal(called, false);
+  } finally {
+    await offline.close();
+  }
+
+  let seen = '';
+  const connected = await startYamxWebServer({
+    host: '127.0.0.1',
+    port: 0,
+    providerOverride: {
+      name: 'fake',
+      modelId: 'fake-web-model',
+      complete: async (req) => {
+        const messages = req && req.messages ? req.messages : [];
+        seen = messages.map((message) => String(message.content || '')).join('\n');
+        return { content: 'Patched from the brief.' };
+      },
+      stream: async function* () {},
+    },
+  });
+  try {
+    const result = await fetch(`${connected.url}/api/command`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'fix the bug' }),
+    }).then((res) => res.json());
+    assert.equal(result.kind, 'chat');
+    assert.match(result.output, /Patched from the brief/);
+    assert.match(seen, /<yamx_auto_project_intel>/);
+    assert.match(seen, /Project path:/);
+  } finally {
+    await connected.close();
+  }
+});
+
 test('web command runner does not execute greetings or unclear text', async () => {
   const { executeWebCommand } = await import('../dist/web/server.js');
   const greeting = await executeWebCommand({ command: 'hi' });
   assert.equal(greeting.code, 0);
   assert.equal(greeting.blocked, false);
-  assert.match(greeting.output, /web panel runs local shell commands/i);
+  assert.match(greeting.output, /local · offline/i);
   assert.equal(greeting.executedCommand, undefined);
 
   const task = await executeWebCommand({ command: 'make my agent smarter' });
   assert.equal(task.code, 0);
-  assert.match(task.output, /only executes command-like input/i);
+  assert.match(task.output, /not a shell command/i);
 });
 
 test('web command runner blocks destructive and sensitive commands by default', async () => {
@@ -821,7 +880,8 @@ test('tool registry exposes codebase analysis intelligence tool', async () => {
   const { getTool, getToolCount, getToolsByCategory } = await import('../dist/tools/registry.js');
   assert.ok(getTool('codebase_analysis'));
   assert.ok(getTool('log_inspect'));
-  assert.equal(getToolCount(), 32);
+  assert.equal(getToolCount(), 33);
+  assert.ok(getTool('delegate'));
   assert.ok(getToolsByCategory().Intelligence.includes('codebase_analysis'));
   assert.ok(getToolsByCategory().Intelligence.includes('log_inspect'));
 });
@@ -942,6 +1002,267 @@ test('subagent runner loads custom project agents', async () => {
   const agents = await new SubagentRunner(provider, dir).loadCustomAgents();
   assert.equal(agents.length, 1);
   assert.equal(agents[0].name, 'docs');
+});
+
+test('command corrections: cross-platform translation to native commands', async () => {
+  const { translateCommand, currentTarget } = await import('../dist/command-corrections.js');
+  const target = currentTarget();
+
+  if (target === 'windows') {
+    // Linux commands must become native Windows/PowerShell commands.
+    assert.equal(translateCommand('ls -la', 'windows')?.corrected, 'dir /a');
+    assert.equal(translateCommand('cat package.json', 'windows')?.corrected, 'type package.json');
+    assert.match(translateCommand('grep -rn TODO src', 'windows')?.corrected || '', /findstr/);
+    assert.match(translateCommand('export FOO=bar', 'windows')?.corrected || '', /\$env:FOO/);
+    assert.equal(translateCommand('pwd', 'windows')?.corrected, 'cd');
+    assert.equal(translateCommand('which node', 'windows')?.corrected, 'where node');
+    assert.equal(translateCommand('ifconfig', 'windows')?.corrected, 'ipconfig');
+    assert.match(translateCommand('traceroute example.com', 'windows')?.corrected || '', /^tracert/);
+    assert.equal(translateCommand('ps aux', 'windows')?.corrected, 'tasklist');
+    assert.match(translateCommand('touch a.txt b.txt', 'windows')?.corrected || '', /type NUL > a\.txt/);
+  } else {
+    // Windows commands must become native Unix commands.
+    const linuxExpected = target === 'linux';
+    assert.equal(translateCommand('ipconfig', target)?.corrected, linuxExpected ? 'ip addr' : 'ifconfig -a');
+    assert.equal(translateCommand('tracert example.com', target)?.corrected, 'traceroute example.com');
+    assert.equal(translateCommand('tasklist', target)?.corrected, 'ps aux');
+    assert.equal(translateCommand('type README.md', target)?.corrected, 'cat README.md');
+    assert.match(translateCommand('dir src', target)?.corrected || '', /^ls -la src/);
+    assert.equal(translateCommand('where node', target)?.corrected, 'command -v node');
+    assert.match(translateCommand('del temp.txt', target)?.corrected || '', /^rm temp\.txt$/);
+    assert.match(translateCommand('cls', target)?.corrected || '', /^clear$/);
+  }
+
+  // Already-native commands stay untouched; pipes translate segment by segment.
+  const native = target === 'windows' ? 'dir' : 'ls -la';
+  assert.equal(translateCommand(native, target), null);
+  const piped = target === 'windows'
+    ? translateCommand('cat package.json | grep name', 'windows')
+    : translateCommand('type package.json | findstr name', target);
+  assert.ok(piped, 'piped command should translate');
+  assert.ok((piped?.corrected || '').includes('|'));
+});
+
+test('command corrections: OS mapping runs ip as ipconfig and refuses bad typos', async () => {
+  const { translateCommand, fixProgramNameTypo, getCommandCorrections, isAutoExecutable } = await import('../dist/command-corrections.js');
+  const cwd = process.cwd();
+  const notFound = "'ip' is not recognized as an internal or external command";
+
+  assert.equal(translateCommand('ip', 'windows')?.corrected, 'ipconfig');
+  assert.equal(translateCommand('ip link', 'windows')?.corrected, 'ipconfig');
+  assert.equal(translateCommand('ps', 'windows')?.corrected, 'tasklist');
+  assert.notEqual(translateCommand('ip', 'windows')?.corrected, 'if');
+
+  assert.equal(await fixProgramNameTypo('ip', cwd), null);
+  assert.equal(await fixProgramNameTypo('helm lint .', cwd), null);
+  const helm = await getCommandCorrections('helm lint .', { cwd, output: "'helm' is not recognized as an internal or external command" });
+  assert.ok(helm.every((item) => !/^help\b/i.test(item.corrected)));
+
+  const winRm = translateCommand('rm -rf tmp', 'windows');
+  assert.match(winRm?.corrected || '', /rmdir\s+\/s/i);
+  assert.equal(isAutoExecutable({
+    original: 'rm -rf tmp',
+    corrected: winRm.corrected,
+    kind: 'cross-platform',
+    confidence: winRm.confidence,
+    reason: winRm.reason,
+    dangerous: true,
+  }, notFound), false);
+  const rm = await getCommandCorrections('rm -rf tmp', { cwd, output: notFound });
+  const destructive = rm.find((item) => /rmdir\s+\/s/i.test(item.corrected));
+  if (destructive) assert.equal(destructive.dangerous, true);
+
+  const card = translateCommand('neofetch', 'windows');
+  assert.match(card?.corrected || '', /Get-CimInstance Win32_OperatingSystem/);
+  assert.match(card?.corrected || '', /Win32_Processor/);
+  assert.match(card?.corrected || '', /\$env:USERNAME/);
+  assert.doesNotMatch(card?.corrected || '', /\bsysteminfo\b/i);
+  for (const name of ['fastfetch', 'screenfetch', 'pfetch']) {
+    assert.equal(translateCommand(name, 'windows')?.corrected, card?.corrected);
+  }
+});
+
+test('web shell translates ip to ipconfig on Windows', async () => {
+  if (process.platform !== 'win32') return;
+  const { executeWebCommand } = await import('../dist/web/server.js');
+  const { getSmartShell } = await import('../dist/tools/utils.js');
+  assert.equal(getSmartShell('ip').command, 'ipconfig');
+  assert.equal(getSmartShell('ip link').command, 'ipconfig');
+
+  const result = await executeWebCommand({ command: 'ip' });
+  assert.equal(result.blocked, false);
+  assert.equal(result.executedCommand, 'ipconfig');
+  assert.match(result.output, /^ip → ipconfig/);
+  assert.doesNotMatch(result.output, /is not recognized/i);
+  assert.equal(result.code, 0);
+});
+
+test('command corrections: typo repair uses real executables', async () => {
+  const { fixProgramNameTypo, damerauLevenshtein, getCommandCorrections } = await import('../dist/command-corrections.js');
+  const cwd = process.cwd();
+
+  assert.equal(damerauLevenshtein('gti', 'git'), 1);
+  assert.equal(damerauLevenshtein('abcd', 'xyz'), 3); // beyond cap 2 -> cap+1
+
+  // 'node' exists everywhere -> no typo fix proposed for it.
+  assert.equal(await fixProgramNameTypo('node -v', cwd), null);
+  // 'gti' is not an executable; the nearest real one (git) is on every dev machine.
+  const gtiFix = await fixProgramNameTypo('gti status', cwd);
+  if (gtiFix) {
+    assert.equal(gtiFix.corrected, 'git status');
+    assert.equal(gtiFix.kind, 'typo');
+    assert.equal(gtiFix.dangerous, false);
+  }
+  // Typo map candidates must exist locally to be proposed.
+  const npmTypo = await fixProgramNameTypo('npn -v', cwd);
+  if (npmTypo) assert.equal(npmTypo.corrected, 'npm -v');
+
+  // Pipeline: dry-run (no output) never includes the fuzzy source.
+  const dry = await getCommandCorrections('gti status', { cwd });
+  assert.ok(dry.every((item) => item.kind !== 'fuzzy'));
+});
+
+test('command corrections: missing-program failure detection and name extraction', async () => {
+  const diag = await import('../dist/direct-shell-diagnose.js');
+  const missingName = diag.extractMissingCommandToken;
+
+  assert.equal(diag.isCommandNotFoundFailure("'foo' is not recognized as an internal or external command"), true);
+  assert.equal(diag.isCommandNotFoundFailure("The term 'ls' is not recognized as the name of a cmdlet"), true);
+  assert.equal(diag.isCommandNotFoundFailure('bash: gti: command not found'), true);
+  assert.equal(diag.isCommandNotFoundFailure('error: unknown command "docotr"'), true);
+  assert.equal(diag.isCommandNotFoundFailure('(exit 1)\nsome real output'), false);
+
+  assert.equal(missingName("'gti' is not recognized as an internal or external command"), 'gti');
+  assert.equal(missingName("ls : The term 'ls' is not recognized as the name of a cmdlet"), 'ls');
+  assert.equal(missingName('bash: gti: command not found'), 'gti');
+  assert.equal(missingName('zsh: command not found: gti'), 'gti');
+  assert.equal(missingName('error: unknown command "docotr" for kubectl'), 'docotr');
+  assert.equal(missingName('(exit 1)\nTests failed'), null);
+});
+
+test('command corrections: auto-execute gate requires not-found failure, confidence and safety', async () => {
+  const { isAutoExecutable, autoFixEnabled } = await import('../dist/command-corrections.js');
+  const correction = { original: 'gti status', corrected: 'git status', kind: 'typo', confidence: 0.9, reason: 'test', dangerous: false };
+  const dangerous = { ...correction, dangerous: true };
+  const lowConfidence = { ...correction, confidence: 0.5 };
+  const notFound = "'gti' is not recognized as an internal or external command";
+
+  if (autoFixEnabled()) {
+    assert.equal(isAutoExecutable(correction, notFound), true);
+    assert.equal(isAutoExecutable(correction, 'Tests failed\n(exit 1)'), false);
+    assert.equal(isAutoExecutable(dangerous, notFound), false);
+    assert.equal(isAutoExecutable(lowConfidence, notFound), false);
+  }
+});
+test('curl setup parses bearer auth, model, continuations, and rejects a missing URL', async () => {
+  const { parseCurlSetup } = await import('../dist/providers/curl-setup.js');
+  const pasted = [
+    'curl https://api.example.com/v1/chat/completions \\',
+    '  -H "Authorization: Bearer sk-test-key" \\',
+    '  -H "Content-Type: application/json" \\',
+    '  -H "HTTP-Referer: https://yamx.local" \\',
+    '  -d \'{"model":"my-model","messages":[{"role":"user","content":"hi"}]}\'',
+  ].join('\n');
+  const parsed = parseCurlSetup(pasted);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.setup.baseUrl, 'https://api.example.com/v1');
+  assert.equal(parsed.setup.apiKey, 'sk-test-key');
+  assert.equal(parsed.setup.model, 'my-model');
+  assert.equal(parsed.setup.extraHeaders?.['HTTP-Referer'], 'https://yamx.local');
+  assert.equal(parsed.setup.extraHeaders?.Authorization, undefined);
+
+  const powershell = [
+    'curl https://api.example.com/v1/chat/completions `',
+    '  -H "x-api-key: sk-ps" `',
+    '  -d "{\\"model\\":\\"llama\\"}"',
+  ].join('\n');
+  const fromPs = parseCurlSetup(powershell);
+  assert.equal(fromPs.ok, true);
+  if (!fromPs.ok) return;
+  assert.equal(fromPs.setup.baseUrl, 'https://api.example.com/v1');
+  assert.equal(fromPs.setup.apiKey, 'sk-ps');
+  assert.equal(fromPs.setup.model, 'llama');
+
+  const missing = parseCurlSetup('curl -H "Authorization: Bearer sk-x"');
+  assert.equal(missing.ok, false);
+  if (missing.ok) return;
+  assert.match(missing.error, /No HTTP\(S\) URL/);
+
+  const notChat = parseCurlSetup('curl https://example.com/v1/messages -H "api-key: abc"');
+  assert.equal(notChat.ok, false);
+});
+
+test('coding brief includes the project path for a short fix request', async () => {
+  const { buildCodingBrief, isCodingTurn, shouldAttachProjectIntel, consumePendingCodingBrief, savePendingCodingBrief } = await import('../dist/project-intel.js');
+  assert.equal(shouldAttachProjectIntel('fix the bug'), false);
+  assert.equal(isCodingTurn('fix the bug'), true);
+  assert.equal(isCodingTurn('hi'), false);
+  assert.equal(isCodingTurn('npm test'), false);
+  const brief = await buildCodingBrief('fix the bug');
+  assert.match(brief, /Project path:/);
+  assert.match(brief, new RegExp(process.cwd().replace(/[\\]/g, '\\\\')));
+  savePendingCodingBrief('fix the bug', brief);
+  const saved = consumePendingCodingBrief();
+  assert.equal(saved?.request, 'fix the bug');
+  assert.match(saved?.brief || '', /Project path:/);
+  assert.equal(consumePendingCodingBrief(), null);
+});
+
+test('coding crew runs explorers together and writers one at a time', async () => {
+  const { scheduleCrewTasks, PathLock, commandRepeatKey } = await import('../dist/crew-scheduler.js');
+  let activeExplorers = 0;
+  let maxExplorers = 0;
+  await scheduleCrewTasks([
+    { role: 'explorer', goal: 'map src' },
+    { role: 'explorer', goal: 'map tests' },
+  ], 3, async () => {
+    activeExplorers += 1;
+    maxExplorers = Math.max(maxExplorers, activeExplorers);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    activeExplorers -= 1;
+    return 'ok';
+  });
+  assert.equal(maxExplorers, 2);
+
+  const lock = new PathLock();
+  let activeWriters = 0;
+  let maxWriters = 0;
+  async function hold() {
+    const release = await lock.acquire(['src/agent.ts']);
+    activeWriters += 1;
+    maxWriters = Math.max(maxWriters, activeWriters);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    activeWriters -= 1;
+    release();
+  }
+  await Promise.all([hold(), hold()]);
+  assert.equal(maxWriters, 1);
+
+  let writers = 0;
+  let maxSameFileWriters = 0;
+  await scheduleCrewTasks([
+    { role: 'implementer', goal: 'edit agent', paths: ['src/agent.ts'] },
+    { role: 'debugger', goal: 'fix agent', paths: ['src/agent.ts'] },
+  ], 3, async () => {
+    writers += 1;
+    maxSameFileWriters = Math.max(maxSameFileWriters, writers);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    writers -= 1;
+    return 'ok';
+  });
+  assert.equal(maxSameFileWriters, 1);
+
+  const counts = new Map();
+  const admit = (generation) => {
+    const key = commandRepeatKey('run_command', { command: 'npm test' }, generation);
+    const next = (counts.get(key) || 0) + 1;
+    counts.set(key, next);
+    return next <= 1;
+  };
+  assert.equal(admit(0), true);
+  assert.equal(admit(0), false);
+  assert.equal(admit(1), true);
 });
 
 let failed = 0;

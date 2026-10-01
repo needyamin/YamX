@@ -5,8 +5,8 @@
 import chalk from 'chalk';
 import ora, { Ora } from 'ora';
 import boxen from 'boxen';
-import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
+import inquirer from 'inquirer';
 import { marked } from 'marked';
 import { markedTerminal } from 'marked-terminal';
 import { summarizeApiFailure } from './provider-error-format.js';
@@ -17,12 +17,12 @@ import {
 import {
   BODY_LEFT_GUTTER,
   BODY_RIGHT_GUTTER,
-  terminalBodyWidthChars,
   wrapIndentedBodyBlock,
   wrapWidthForIndentedBody,
   panelInnerWrapWidth,
 } from './terminal-layout.js';
 import { ttyCueAfterBulkOutput, ttyResetBeforeReplPrompt } from './tty-repl-cue.js';
+import { playYamxLogo } from './pixel-logo.js';
 
 const DIM = chalk.dim;
 
@@ -35,46 +35,31 @@ function yamxMarkedTerminal() {
     showSectionPrefix: false,
     emoji: false,
     paragraph: chalk.reset,
-    heading: chalk.hex('#6EE89F').bold,
-    firstHeading: chalk.hex('#00FF41').bold,
+    heading: chalk.bold,
+    firstHeading: chalk.hex('#D97757').bold,
     hr: (line: string) => DIM(typeof line === 'string' ? line.trimEnd() : line),
-    blockquote: chalk.hex('#93C5FD').italic,
+    blockquote: chalk.italic,
     html: DIM,
-    link: chalk.cyan,
-    href: chalk.cyan.underline,
-    strong: chalk.white.bold,
-    em: chalk.italic.hex('#C7F9D8'),
-    codespan: chalk.hex('#FDE047'),
-    code: chalk.hex('#FACC15'),
-    listitem: chalk.hex('#DCFCE7'),
+    link: chalk.hex('#D97757'),
+    href: chalk.underline,
+    strong: chalk.bold,
+    em: chalk.italic,
+    codespan: chalk.hex('#E8B86D'),
+    code: chalk.hex('#E8B86D'),
+    listitem: chalk.reset,
   }) as any;
 }
 
 marked.use(yamxMarkedTerminal());
 
-const GOLD = chalk.hex('#E8C547');
-const SUCCESS = chalk.green;
-const ERROR = chalk.red;
-const WARNING = chalk.yellow;
-const INFO = chalk.cyan;
-const ACCENT = chalk.hex('#7CB9E8');
-const TOOL_COLOR = chalk.magenta;
+const SUCCESS = chalk.hex('#8FBC8F');
+const ERROR = chalk.hex('#E07A6A');
+const WARNING = chalk.hex('#E8B86D');
+const ACCENT = chalk.hex('#D97757');
+const FRAME = '#6B6560';
 
-/** Banner greens */
-const MX = chalk.hex('#00FF41');
-const MX_DIM = chalk.hex('#008F11');
-const MX_CORE = chalk.hex('#41FF70');
-
-function visLen(s: string): number {
-  return stripAnsi(s).length;
-}
-
-/** Right-pad ANSI string to a visible width (no truncation here — clip inputs beforehand). */
-function padVis(ans: string, w: number): string {
-  const n = visLen(ans);
-  if (n >= w) return ans;
-  return ans + ' '.repeat(w - n);
-}
+/** Composer glyph used by the REPL. */
+export const REPL_PROMPT = `${ACCENT('>')} `;
 
 function clipField(s: string, max: number): string {
   if (s.length <= max) return s;
@@ -165,115 +150,67 @@ export class UI {
     );
   }
 
-  banner(provider: string, model: string, session?: { title?: string; id?: string }, toolCount = 0, version = 'dev', councilOn = false) {
-    if (process.stdout.isTTY) console.clear();
+  async banner(provider: string, model: string, session?: { title?: string; id?: string }, _toolCount = 0, version = 'dev', councilOn = false) {
+    const tty = process.stdout.isTTY === true;
+    if (tty) console.clear();
 
     const cols =
       typeof process.stdout.columns === 'number' && process.stdout.columns >= 48 ? process.stdout.columns : 80;
-    const pad = BODY_LEFT_GUTTER;
-    const boxInner = Math.min(Math.max(cols - pad - BODY_RIGHT_GUTTER - 4, 52), 78);
+    if (!this.headless) {
+      await playYamxLogo(cols, tty);
+    }
+    const cwd = clipField(process.cwd(), Math.min(56, Math.max(24, cols - 16)));
+    const modelClip = clipField(model || 'local', 22);
+    const provClip = clipField(provider || 'offline', 18);
+    const versionLine = `v${version}${councilOn ? '  ·  council on' : ''}`;
+    const sessionLine = session?.title
+      ? `${clipField(session.title, 24)}${session.id ? `  ·  ${session.id.slice(0, 8)}` : ''}`
+      : '';
+    const statusVisible = `${modelClip}  ·  ${provClip}`;
+    const width = Math.max(statusVisible.length, cwd.length, sessionLine.length, versionLine.length);
 
-    const threadTitleRaw = clipField(session?.title ?? 'untitled', Math.max(28, Math.floor(boxInner * 0.48)));
-    const threadId = session?.id?.slice(0, 8) ?? '--------';
-    const tc = `${toolCount || '?'}`;
-    const provClip = clipField(provider, Math.max(14, Math.floor(boxInner * 0.32)));
-    const modelClip = clipField(model, Math.max(14, Math.floor(boxInner * 0.38)));
+    const centerPlain = (text: string, paint: (s: string) => string) => {
+      const pad = Math.max(0, width - text.length);
+      const left = Math.floor(pad / 2);
+      return ' '.repeat(left) + paint(text) + ' '.repeat(pad - left);
+    };
+    const statusPad = Math.max(0, width - statusVisible.length);
+    const statusLeft = Math.floor(statusPad / 2);
+    const status =
+      ' '.repeat(statusLeft) +
+      chalk.hex('#E8B56A').bold(modelClip) +
+      DIM('  ·  ') +
+      chalk.hex('#D97757')(provClip) +
+      ' '.repeat(statusPad - statusLeft);
 
-    const labelPlain = '[ NEURAL LINK ]';
-    const eqSlot = Math.max(6, boxInner - labelPlain.length - 2);
-    const a = Math.floor(eqSlot / 2);
-    const b = eqSlot - a;
-    const ribbon =
-      MX_CORE('+') +
-      MX('='.repeat(a)) +
-      MX('[') +
-      MX.bold(' NEURAL LINK ') +
-      MX(']') +
-      MX('='.repeat(b)) +
-      MX_CORE('+');
-
-    const sep = MX_CORE('+') + MX_DIM('─'.repeat(Math.max(4, boxInner - 2))) + MX_CORE('+');
-
-    /** Inner-matrix pipe deco (inside the outer Unicode frame). */
-    const deco = MX('|') + '  ';
-    const footPad = '   ';
-
-    const line1 = padVis(ribbon, boxInner);
-    const line2 = padVis(
-      `${deco}${MX.bold('Y A M X')}  ${MX_DIM(`v${version}`)}  ${MX_DIM('Coding Agent')}`,
-      boxInner
-    );
-    const triple =
-      MX_DIM('Encrypted Session') +
-      ' ' +
-      MX_DIM('|') +
-      ' ' +
-      MX_DIM(`${tc} Tools`) +
-      ' ' +
-      MX_DIM('|') +
-      ' ' +
-      MX_DIM('local-first powerhouse');
-    const line3 = padVis(`${deco}${triple}`, boxInner);
-    const line4 = padVis(sep, boxInner);
-
-    const provLine =
-      MX_DIM('Provider') +
-      ' ' +
-      MX(provClip) +
-      ' ' +
-      MX_DIM('|') +
-      ' ' +
-      MX_DIM('Model') +
-      ' ' +
-      MX(modelClip);
-    const thrLine =
-      MX_DIM('Thread') + ' ' + MX(threadTitleRaw) + ' ' + MX_DIM('|') + ' ' + MX_DIM(`${threadId}…`);
-    const sigLine =
-      MX_DIM('Signal') +
-      ' ' +
-      MX('Online') +
-      ' ' +
-      MX_DIM('|') +
-      ' ' +
-      MX_DIM('Council') +
-      ' ' +
-      MX(councilOn ? 'On' : 'Off') +
-      ' ' +
-      MX_DIM('|') +
-      ' ' +
-      MX_DIM('Logs') +
-      ' ' +
-      MX('Ready');
-
-    const line5 = padVis('', boxInner);
-    const line6 = padVis(`${footPad}${provLine}`, boxInner);
-    const line7 = padVis(`${footPad}${thrLine}`, boxInner);
-    const line8 = padVis(`${footPad}${sigLine}`, boxInner);
-
-    const hz = MX_DIM('─'.repeat(boxInner + 2));
-    const indent = ' '.repeat(pad);
-    const mxFrame = chalk.hex('#00FF41');
-
-    const rows = [
-      '',
-      `${indent}${mxFrame('┌')}${hz}${mxFrame('┐')}`,
-      `${indent}${mxFrame('│')} ${line1} ${mxFrame('│')}`,
-      `${indent}${mxFrame('│')} ${line2} ${mxFrame('│')}`,
-      `${indent}${mxFrame('│')} ${line3} ${mxFrame('│')}`,
-      `${indent}${mxFrame('│')} ${line4} ${mxFrame('│')}`,
-      `${indent}${mxFrame('│')} ${line5} ${mxFrame('│')}`,
-      `${indent}${mxFrame('│')} ${line6} ${mxFrame('│')}`,
-      `${indent}${mxFrame('│')} ${line7} ${mxFrame('│')}`,
-      `${indent}${mxFrame('│')} ${line8} ${mxFrame('│')}`,
-      `${indent}${mxFrame('└')}${hz}${mxFrame('┘')}`,
-      '',
+    const lines = [
+      status,
+      centerPlain(cwd, DIM),
+      ...(sessionLine ? [centerPlain(sessionLine, chalk.hex('#8A6A55'))] : []),
+      centerPlain(versionLine, chalk.hex('#8A6A55')),
     ];
-    console.log(rows.join('\n'));
+
+    const cardWidth = width + 4;
+    const cardLeft = Math.max(0, Math.floor((cols - cardWidth) / 2));
+    console.log(
+      boxen(lines.join('\n'), {
+        padding: { top: 0, bottom: 0, left: 1, right: 1 },
+        margin: { top: 0, bottom: 0, left: cardLeft, right: 0 },
+        borderStyle: 'round',
+        borderColor: '#8A6A55',
+        dimBorder: true,
+      })
+    );
+    const hintPlain = '/help for help  ·  /connect to switch model';
+    const hint =
+      ACCENT('/help') + DIM(' for help  ·  ') + ACCENT('/connect') + DIM(' to switch model');
+    const hintPad = Math.max(0, Math.floor((cols - hintPlain.length) / 2));
+    console.log(`\n${' '.repeat(hintPad)}${hint}\n`);
   }
 
   neuralStatus(stage: string, detail: string) {
     if (!this.verbose) return;
-    console.log(`  ${MX('◈')} ${MX_DIM('[')}${MX(stage.toUpperCase())}${MX_DIM(']')} ${DIM(detail)}`);
+    console.log(`  ${ACCENT('●')} ${DIM(stage)}  ${DIM(detail)}`);
   }
 
   help() {
@@ -292,12 +229,15 @@ export class UI {
         ['/remember', 'Save a durable note'],
       ]],
       ['Inspect', [
+        ['/connect', 'Set base URL, API key, and model name'],
         ['/model', 'Provider & model'],
         ['/cost', 'Token usage & history'],
         ['/diff', 'Git diff'],
         ['/pwd', 'Show YamX shell cwd'],
         ['/cd', 'Change YamX shell cwd'],
         ['/run', 'Execute shell command'],
+        ['/fix <cmd>', 'Preview smart correction for a wrong command'],
+        ['/translate <cmd>', 'Translate a command to this platform native form'],
         ['/log', 'Inspect logs: /log [file] --mode latest-error'],
         ['/status', 'Runtime/session snapshot'],
         ['/tools', 'List all tools'],
@@ -315,11 +255,11 @@ export class UI {
       ]],
     ];
 
-    console.log(chalk.bold('\n  ⌘ Commands\n'));
+    console.log(chalk.bold('\n  Commands\n'));
     for (const [category, commands] of sections) {
       console.log(`  ${ACCENT(category)}`);
       for (const [cmd, desc] of commands) {
-        console.log(`    ${GOLD(cmd.padEnd(14))} ${DIM(desc)}`);
+        console.log(`    ${chalk.white(cmd.padEnd(18))} ${DIM(desc)}`);
       }
       console.log();
     }
@@ -327,18 +267,16 @@ export class UI {
 
   startThinking(text = 'Thinking…') {
     if (this.headless) return;
-    const prefix = this.verbose ? `${MX_DIM('[neural-link]')} ` : '';
     this.spinner = ora({
-      text: `${prefix}${DIM(text)}`,
-      color: 'green',
+      text: DIM(text),
+      color: 'gray',
       spinner: 'dots',
     }).start();
   }
 
   updateSpinner(text: string) {
     if (this.spinner) {
-      const prefix = this.verbose ? `${MX_DIM('[neural-link]')} ` : '';
-      this.spinner.text = `${prefix}${DIM(text)}`;
+      this.spinner.text = DIM(text);
     }
   }
 
@@ -364,8 +302,8 @@ export class UI {
     const ttyOut = typeof process.stdout.isTTY === 'boolean' ? process.stdout.isTTY : true;
     if (!this.headless && ttyOut && !this.assistantStreamOra) {
       this.assistantStreamOra = ora({
-        text: DIM('Receiving reply…'),
-        color: 'green',
+        text: DIM('Thinking…'),
+        color: 'gray',
       }).start();
     }
   }
@@ -439,31 +377,38 @@ export class UI {
     }
   }
 
+  private crewDepth = 0;
+
+  crewStart(role: string, goal: string) {
+    this.stopSpinner();
+    if (this.headless) return;
+    const title = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Subagent';
+    const pad = ' '.repeat(2 + this.crewDepth * 2);
+    console.log(`\n${pad}${ACCENT('●')} ${chalk.bold(title)}  ${DIM(clipField(goal, 88))}`);
+  }
+
+  pushCrew() {
+    this.crewDepth += 1;
+  }
+
+  popCrew() {
+    this.crewDepth = Math.max(0, this.crewDepth - 1);
+  }
+
   toolCall(name: string, args: Record<string, unknown>) {
     this.stopSpinner();
     if (this.headless) return;
 
-    const clipToolArgString = (key: string, raw: string): string => {
-      const max =
-        key === 'command' ? 14_000
-          : key === 'content' || key === 'old_text' || key === 'new_text' ? 3_000
-            : ['message', 'pattern', 'path', 'source', 'destination'].includes(key) ? 2_000
-              : 420;
-      if (raw.length <= max) return raw;
-      return `${raw.slice(0, Math.max(1, max - 1))}…`;
-    };
-
-    const argLines = Object.entries(args).map(([k, v]) => {
-      const val = typeof v === 'string' ? clipToolArgString(k, v) : v;
-      return `${DIM(k)}=${chalk.white(JSON.stringify(val))}`;
-    });
-    const sep = this.verbose ? ' ' : '\n';
-    const argsStr = argLines.join(sep);
-    const innerBody = this.verbose ? argsStr : `${TOOL_COLOR.bold(name)}\n${argsStr}`;
+    const { label, target } = summarizeToolCall(name, args);
+    const targetBit = target ? `  ${DIM(target)}` : '';
+    const pad = ' '.repeat(2 + this.crewDepth * 2);
+    console.log(`\n${pad}${ACCENT('●')} ${chalk.bold(label)}${targetBit}`);
     if (this.verbose) {
-      console.log(`\n  ${MX('◈')} ${MX_DIM('[TOOL LINK]')} ${TOOL_COLOR.bold(name)}`);
+      for (const [k, v] of Object.entries(args)) {
+        const raw = typeof v === 'string' ? v : JSON.stringify(v);
+        console.log(`     ${DIM(`${k}=${clipField(raw.replace(/\s+/g, ' '), 160)}`)}`);
+      }
     }
-    this.printPanel(DIM(' tool '), innerBody, '#2563EB');
 
     if (name === 'run_command' && typeof args.command === 'string' && args.command.trim()) {
       const cmd = args.command.trim();
@@ -477,51 +422,90 @@ export class UI {
   toolResult(name: string, result: string, duration: number) {
     this.stopSpinner();
     if (this.headless) return;
-    const normalized = String(result ?? '').replace(/\r\n/g, '\n');
-    const maxLines = this.verbose ? TOOL_RESULT_MAX_LINES_VERBOSE : TOOL_RESULT_MAX_LINES_NORMAL;
+    const normalized = String(result ?? '').replace(/\r\n/g, '\n').replace(/\s+$/, '');
+    const shell = name === 'run_command' || name === 'run_command_background';
+    const maxLines = shell
+      ? (this.verbose ? TOOL_RESULT_MAX_LINES_VERBOSE : TOOL_RESULT_MAX_LINES_NORMAL)
+      : (this.verbose ? 24 : 8);
+    const maxChars = shell ? TOOL_RESULT_DISPLAY_MAX_CHARS : 2_400;
 
-    const { text: capped, truncatedChars } = truncateToolTextAtNewline(normalized, TOOL_RESULT_DISPLAY_MAX_CHARS);
+    if (!normalized.trim()) {
+      const timing = this.verbose ? DIM(`  ${duration}ms`) : '';
+      const pad = ' '.repeat(2 + this.crewDepth * 2);
+      console.log(`${pad}${DIM('⎿')}  ${DIM('(empty)')}${timing}`);
+      return;
+    }
+
+    const { text: capped, truncatedChars } = truncateToolTextAtNewline(normalized, maxChars);
     const lines = capped.split('\n');
-
-    let lineTrunc = false;
-    let displayLines: string[];
+    let hidden = 0;
+    let displayLines = lines;
     if (lines.length > maxLines) {
-      const kept = Math.max(4, maxLines - 2);
-      displayLines = [
-        ...lines.slice(0, kept),
-        DIM(
-          `  … ${lines.length - kept} more lines (preview limit; full output is still sent to the agent.)`
-        ) as string,
-      ];
-      lineTrunc = true;
-    } else {
-      displayLines = lines;
+      const kept = Math.max(4, maxLines - 1);
+      hidden = lines.length - kept;
+      displayLines = lines.slice(0, kept);
     }
 
-    const header = `${SUCCESS('✓')} ${name} · ${duration}ms`;
-    const dimBody = displayLines.map((ln) => DIM(ln)).join('\n');
-    const hints: string[] = [];
-    if (truncatedChars || lineTrunc) {
-      hints.push(DIM('  (panel preview limited; full tool output is still in agent context)'));
-    }
-    const bodyForBox = [header, dimBody, ...hints].filter(Boolean).join('\n').trimEnd();
-
-    if (normalized.trim()) {
-      this.printPanel(DIM(' result '), bodyForBox, '#059669');
-    } else {
-      this.printPanel(DIM(' result '), DIM(`✓ ${name} · ${duration}ms — empty output`), '#047857');
+    const pad = ' '.repeat(2 + this.crewDepth * 2);
+    displayLines.forEach((ln, i) => {
+      const prefix = i === 0 ? `${DIM('⎿')}  ` : '     ';
+      console.log(`${pad}${prefix}${DIM(ln)}`);
+    });
+    if (truncatedChars || hidden > 0) {
+      const bits: string[] = [];
+      if (hidden > 0) bits.push(`${hidden} more lines`);
+      if (truncatedChars) bits.push('preview truncated');
+      if (this.verbose) bits.push(`${duration}ms`);
+      console.log(`${pad}   ${DIM(`… ${bits.join(' · ')} (full output is still sent to the agent)`)}`);
+    } else if (this.verbose) {
+      console.log(`${pad}   ${DIM(`${duration}ms`)}`);
     }
   }
 
-  approvalNeeded(toolName: string, args: Record<string, unknown>): string {
+  approvalNeeded(toolName: string, args: Record<string, unknown>, dangerous = false): string {
     if (this.headless) return '';
-    console.log(`\n  ${WARNING('⚠')} ${chalk.bold('Approve')} ${TOOL_COLOR(toolName)}`);
-    for (const [k, v] of Object.entries(args)) {
-      const val =
-        typeof v === 'string' && v.length > 200 ? `${v.slice(0, 197)}…` : v;
-      console.log(`    ${DIM(k)}: ${chalk.white(String(val))}`);
-    }
+    const { label, target } = summarizeToolCall(toolName, args);
+    const detailLines = Object.entries(args).slice(0, 8).map(([k, v]) => {
+      const raw = typeof v === 'string' ? v : JSON.stringify(v);
+      return `${DIM(k)}  ${clipField(String(raw).replace(/\s+/g, ' '), 180)}`;
+    });
+    const body = [
+      dangerous ? ERROR.bold(label) : chalk.bold(label),
+      target ? DIM(target) : '',
+      ...detailLines,
+    ].filter(Boolean).join('\n');
+    console.log(
+      '\n' +
+        boxen(body, {
+          title: dangerous ? 'Dangerous action' : 'Allow this action?',
+          titleAlignment: 'left',
+          padding: { top: 0, bottom: 0, left: 1, right: 1 },
+          margin: { top: 0, bottom: 0, left: BODY_LEFT_GUTTER, right: 2 },
+          borderStyle: 'round',
+          borderColor: dangerous ? '#E07A6A' : FRAME,
+          dimBorder: true,
+        }) +
+        '\n'
+    );
     return '';
+  }
+
+  /** Numbered yes/no. Permission rules stay with the caller; this is only the prompt. */
+  async confirmAction(message = 'Do you want to proceed?', defaultYes = true): Promise<boolean> {
+    if (this.headless) return false;
+    const { choice } = await inquirer.prompt<{ choice: string }>([
+      {
+        type: 'rawlist',
+        name: 'choice',
+        message,
+        default: defaultYes ? 'yes' : 'no',
+        choices: [
+          { name: 'Yes', value: 'yes' },
+          { name: 'No', value: 'no' },
+        ],
+      },
+    ]);
+    return choice === 'yes';
   }
 
   usage(input: number, output: number, totalInput: number, totalOutput: number) {
@@ -568,7 +552,7 @@ export class UI {
           padding: { top: 0, bottom: 0, left: 1, right: 1 },
           margin: { top: 0, bottom: 1, left: 2, right: 3 },
           borderStyle: 'round',
-          borderColor: '#FF4136',
+          borderColor: '#E07A6A',
           dimBorder: true,
           title: ERROR.bold(title.trim()),
           titleAlignment: 'left',
@@ -585,7 +569,7 @@ export class UI {
   info(msg: string) {
     if (this.headless) return;
     const w = wrapWidthForIndentedBody();
-    const line = `${INFO('○')} ${DIM(msg)}`;
+    const line = `${ACCENT('●')} ${DIM(msg)}`;
     console.log(
       wrapAnsi(line, w, { trim: false, wordWrap: true })
         .split('\n')
@@ -619,13 +603,67 @@ export class UI {
 
   /** Print a tools list grouped by category */
   toolsList(categories: Record<string, string[]>) {
-    console.log(chalk.bold('\n  ⚡ Available Tools\n'));
+    console.log(chalk.bold('\n  Tools\n'));
     for (const [cat, tools] of Object.entries(categories)) {
       console.log(`  ${ACCENT(cat)}`);
       for (const t of tools) {
-        console.log(`    ${GOLD(t)}`);
+        console.log(`    ${chalk.white(t)}`);
       }
       console.log();
     }
   }
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  read_file: 'Read',
+  read_files: 'Read',
+  write_file: 'Write',
+  write_files: 'Write',
+  edit_file: 'Edit',
+  multi_edit: 'Edit',
+  patch_file: 'Patch',
+  delete_file: 'Delete',
+  copy_file: 'Copy',
+  move_file: 'Move',
+  list_files: 'List',
+  search_files: 'Search',
+  grep_search: 'Grep',
+  file_info: 'File info',
+  directory_tree: 'Tree',
+  find_references: 'References',
+  run_command: 'Bash',
+  run_command_background: 'Bash',
+  shell_diagnostics: 'Shell',
+  fetch_url: 'Fetch',
+  git_status: 'Git status',
+  git_diff: 'Git diff',
+  git_commit: 'Git commit',
+  git_log: 'Git log',
+  git_branch: 'Git branch',
+  git_stash: 'Git stash',
+  log_inspect: 'Logs',
+  project_intel: 'Project',
+  codebase_analysis: 'Codebase',
+  delegate: 'Delegate',
+  task_list: 'Tasks',
+  task_tail: 'Task output',
+  task_stop: 'Stop task',
+};
+
+function summarizeToolCall(name: string, args: Record<string, unknown>): { label: string; target: string } {
+  const label = TOOL_LABELS[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const keys = ['path', 'file', 'command', 'pattern', 'query', 'url', 'source', 'destination', 'message'];
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === 'string' && value.trim()) {
+      return { label, target: clipField(value.trim().replace(/\s+/g, ' '), 96) };
+    }
+  }
+  if (Array.isArray(args.paths) && args.paths.length) {
+    return { label, target: clipField(args.paths.map((p) => String(p)).join(', '), 96) };
+  }
+  if (Array.isArray(args.writes) && args.writes.length) {
+    return { label, target: clipField(`${args.writes.length} files`, 96) };
+  }
+  return { label, target: '' };
 }

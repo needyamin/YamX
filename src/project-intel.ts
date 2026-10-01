@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
 import fg from 'fast-glob';
@@ -526,4 +527,107 @@ function formatDeps(pkg: Awaited<ReturnType<typeof readPackageInfo>>): string[] 
   const deps = [...pkg.dependencies, ...pkg.devDependencies];
   if (deps.length === 0) return ['- none detected'];
   return deps.slice(0, 30).map((dep) => `- ${dep}`);
+}
+
+const CODING_TURN = /\b(write|edit|add|fix|debug|implement|create|patch|refactor|change|bug|error|fail(?:ing|ure|ed)?)\b/i;
+
+/** Write, edit, fix, or debug asks. Greetings and bare shell lines are not coding turns. */
+export function isCodingTurn(input: string): boolean {
+  const text = input.trim();
+  if (!text || text.startsWith('/')) return false;
+  const intent = classifyUserIntent(text);
+  if (intent.kind === 'conversation' || intent.kind === 'clarification' || intent.kind === 'empty' || intent.kind === 'direct-command') {
+    return false;
+  }
+  if (/\bexplain\b/i.test(text) && /\b(fail|error|bug|exception|stack)\b/i.test(text)) return true;
+  return CODING_TURN.test(text);
+}
+
+export function wrapCodingBrief(brief: string, request: string): string {
+  return [
+    '<yamx_auto_project_intel>',
+    brief.trim(),
+    '</yamx_auto_project_intel>',
+    '',
+    'User request:',
+    request,
+  ].join('\n');
+}
+
+export function extractCodingBrief(input: string): string | undefined {
+  const match = input.match(/<yamx_auto_project_intel>([\s\S]*?)<\/yamx_auto_project_intel>/);
+  const brief = match?.[1]?.trim();
+  return brief || undefined;
+}
+
+let pendingCodingBrief: { request: string; brief: string } | null = null;
+
+export function savePendingCodingBrief(request: string, brief: string): void {
+  pendingCodingBrief = { request, brief };
+}
+
+export function consumePendingCodingBrief(): { request: string; brief: string } | null {
+  const saved = pendingCodingBrief;
+  pendingCodingBrief = null;
+  return saved;
+}
+
+function gitSnapshot(cwd: string): { branch: string; dirty: string } {
+  try {
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const status = execSync('git status --short', {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return { branch: branch || 'unknown', dirty: status ? 'dirty' : 'clean' };
+  } catch {
+    return { branch: 'not a git repo', dirty: 'unknown' };
+  }
+}
+
+function scriptLines(scripts: Record<string, string>): string[] {
+  const wanted = Object.entries(scripts).filter(([name]) => /test|lint|build|typecheck|check/i.test(name));
+  if (wanted.length === 0) return ['- none detected'];
+  return wanted.slice(0, 12).map(([name, script]) => `- ${name}: ${script}`);
+}
+
+function filesNamedInText(text: string): string[] {
+  const found = text.match(/[A-Za-z0-9_./\\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|json|md)/g) || [];
+  return [...new Set(found.map((file) => file.replace(/\\/g, '/')))].slice(0, 12);
+}
+
+/** Local facts for a coding turn. No model call. */
+export async function buildCodingBrief(input: string, cwd = process.cwd()): Promise<string> {
+  const root = path.resolve(cwd);
+  const packageInfo = await readPackageInfo(root);
+  const hasManifest = await fs.pathExists(path.join(root, 'package.json'));
+  const files = await listImportantFiles(root, 24);
+  const git = gitSnapshot(root);
+  const mentioned = filesNamedInText(input);
+  const errorClip = input.trim().slice(0, 1500);
+  return [
+    `Project path: ${root}`,
+    `Working directory: ${root}`,
+    `OS: ${process.platform}`,
+    `Shell: ${process.env.SHELL || process.env.ComSpec || 'unknown'}`,
+    `Package manager: ${packageInfo.manager}`,
+    `Manifest: ${hasManifest ? 'package.json' : 'none'}`,
+    `Git branch: ${git.branch}`,
+    `Git tree: ${git.dirty}`,
+    'Test, lint, and build scripts:',
+    ...scriptLines(packageInfo.scripts),
+    'Entry and key files:',
+    ...(files.length ? files.map((file) => `- ${file}`) : ['- none detected']),
+    'Files named in the request:',
+    ...(mentioned.length ? mentioned.map((file) => `- ${file}`) : ['- none']),
+    'Request text:',
+    errorClip || '- empty',
+  ].join('\n');
 }

@@ -89,10 +89,9 @@ async function main(input?: string, options?: any) {
 
   // Setup AI orchestrator if providers are configured
   const orchestrator = new AiOrchestrator();
-  if (cfg.providers.openai?.apiKey) orchestrator.registerProvider(new ProviderAdapter(createProvider('openai', cfg.providers.openai.model, cfg)));
-  if (cfg.providers.anthropic?.apiKey) orchestrator.registerProvider(new ProviderAdapter(createProvider('anthropic', cfg.providers.anthropic.model, cfg)));
-  if (cfg.providers.gemini?.apiKey) orchestrator.registerProvider(new ProviderAdapter(createProvider('gemini', cfg.providers.gemini.model, cfg)));
-  if (cfg.providers.ollama?.baseUrl) orchestrator.registerProvider(new ProviderAdapter(createProvider('ollama', cfg.providers.ollama.model, cfg), true));
+  if (cfg.providers?.custom?.baseUrl) {
+    orchestrator.registerProvider(new ProviderAdapter(createProvider('custom', cfg.providers.custom.model, cfg)));
+  }
 
   // Handle --onboard, --diagnose as direct commands
   if (options?.onboard) {

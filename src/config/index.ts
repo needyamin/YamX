@@ -18,6 +18,13 @@ export interface YamConfig {
     grok?: { apiKey: string; model?: string };
     openrouter?: { apiKey: string; model?: string };
     ollama?: { baseUrl?: string; model?: string };
+    /** OpenAI-compatible chat endpoint: base URL, API key, and any model name. */
+    custom?: {
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+      extraHeaders?: Record<string, string>;
+    };
   };
   settings: {
     autoApprove: boolean;
@@ -43,6 +50,8 @@ export interface YamConfig {
     subagents: {
       enabled: boolean;
       defaultModel?: string;
+      maxParallel?: number;
+      maxIterations?: number;
     };
     /** When true: neural-status lines, fancy tool banners, turn timing. Default off = quieter CLI. */
     verboseCli?: boolean;
@@ -59,7 +68,7 @@ export interface YamConfig {
 }
 
 const DEFAULT_CONFIG: YamConfig = {
-  defaultProvider: 'openrouter',
+  defaultProvider: 'custom',
   defaultModel: 'deepseek-chat',
   providers: {},
   settings: {
@@ -82,6 +91,8 @@ const DEFAULT_CONFIG: YamConfig = {
     maxToolResultChars: 24_000,
     subagents: {
       enabled: true,
+      maxParallel: 3,
+      maxIterations: 12,
     },
     verboseCli: false,
     maxAssistantMarkdownChars: 3200,
@@ -199,6 +210,20 @@ export class Config {
       this.config.providers.openrouter = {
         ...this.config.providers.openrouter,
         apiKey: process.env.OPENROUTER_API_KEY,
+      };
+    }
+    if (process.env.YAMX_CUSTOM_API_KEY?.trim() || process.env.YAMX_CUSTOM_BASE_URL?.trim() || process.env.YAMX_CUSTOM_MODEL?.trim()) {
+      this.config.providers.custom = {
+        ...this.config.providers.custom,
+        ...(process.env.YAMX_CUSTOM_API_KEY?.trim()
+          ? { apiKey: process.env.YAMX_CUSTOM_API_KEY.trim() }
+          : {}),
+        ...(process.env.YAMX_CUSTOM_BASE_URL?.trim()
+          ? { baseUrl: process.env.YAMX_CUSTOM_BASE_URL.trim() }
+          : {}),
+        ...(process.env.YAMX_CUSTOM_MODEL?.trim()
+          ? { model: process.env.YAMX_CUSTOM_MODEL.trim() }
+          : {}),
       };
     }
 

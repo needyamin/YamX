@@ -22,7 +22,9 @@ import {
 } from './assistant-output-cap.js';
 import { maybeRuntimePreflightMessage } from './runtime-preflight.js';
 import { buildCurrentIntentMessage, classifyUserIntent } from './intent.js';
-import inquirer from 'inquirer';
+import { extractCodingBrief } from './project-intel.js';
+import { setCrewRuntime } from './subagents.js';
+import { FILE_EDIT_TOOLS, PARALLEL_READ_TOOLS, commandRepeatKey, fileEditChanged } from './crew-scheduler.js';
 
 const MAX_TOOL_ITERATIONS = 40; // Safety: prevent infinite loops
 const MAX_RETRIES = 3; // Retry on transient API failures
@@ -90,6 +92,9 @@ export interface AgentOptions {
   preflightRuntimeProbes?: boolean;
   /** Suppress spinners and decorative terminal output (web / programmatic runners). */
   headlessUi?: boolean;
+  subagentsEnabled?: boolean;
+  subagentMaxParallel?: number;
+  subagentMaxIterations?: number;
 }
 
 export class Agent {
@@ -102,6 +107,7 @@ export class Agent {
   private fileChanges: Array<{ path: string; oldContent: string; action: string }> = [];
   private turnStartTime = 0;
   private toolCallCounts = new Map<string, number>();
+  private editGeneration = 0;
   private hooks = new HookManager();
   private stopRequested = false;
   private stopWaiters = new Set<() => void>();
@@ -202,6 +208,15 @@ export class Agent {
 
   getHistory(): Message[] {
     return JSON.parse(JSON.stringify(this.history)) as Message[];
+  }
+
+  /** Swap the model client after /connect without resetting the session. */
+  setProvider(provider: Provider): void {
+    this.provider = provider;
+  }
+
+  getProviderName(): string {
+    return this.provider.name;
   }
 
   /** Replace the first system message after refreshing project context (e.g. offline project scan). */
@@ -312,6 +327,7 @@ export class Agent {
   /** Main chat entry point */
   async chat(userInput: string): Promise<void> {
     this.stopRequested = false;
+    this.activateCrew(userInput);
     try {
       await this.ensureContextBudget();
       this.throwIfStopped();
@@ -332,6 +348,7 @@ export class Agent {
 
       this.fileChanges = []; // Reset undo buffer per turn
       this.toolCallCounts.clear();
+      this.editGeneration = 0;
       this.turnStartTime = Date.now();
 
       this.ui.neuralStatus('input', 'request received; preparing model context');
@@ -392,10 +409,29 @@ export class Agent {
       }
       throw error;
     } finally {
+      setCrewRuntime(null);
       this.stopRequested = false;
       this.stopWaiters.clear();
       this.ui.cueTTYAfterBulkOutput();
     }
+  }
+
+  private activateCrew(userInput: string): void {
+    setCrewRuntime({
+      provider: this.provider,
+      ui: this.ui,
+      permissionMode: this.options.permissionMode,
+      autoApprove: this.options.autoApprove,
+      allowedShellCommands: this.options.allowedShellCommands,
+      deniedShellPatterns: this.options.deniedShellPatterns,
+      nonInteractiveApprovals: this.options.nonInteractiveApprovals,
+      projectBrief: extractCodingBrief(userInput),
+      maxIterations: this.options.subagentMaxIterations ?? 12,
+      maxParallel: this.options.subagentMaxParallel ?? 3,
+      enabled: this.options.subagentsEnabled !== false,
+      hooksEnabled: this.options.hooksEnabled !== false,
+      stopCheck: () => this.isStopRequested(),
+    });
   }
 
   private async runModelCouncil(userInput: string, intentKind = classifyUserIntent(userInput).kind): Promise<void> {
@@ -759,20 +795,59 @@ export class Agent {
     }
   }
 
-  /** Process tool calls with approval flow */
+  /** Process tool calls. Read-only calls in a row run together; writes and shell stay in order. */
   private async processToolCalls(toolCalls: ToolCall[]): Promise<boolean> {
-    for (const tc of toolCalls) {
+    let index = 0;
+    while (index < toolCalls.length) {
+      this.throwIfStopped();
+      if (this.canRunReadInParallel(toolCalls[index])) {
+        const batch: ToolCall[] = [];
+        while (index < toolCalls.length && this.canRunReadInParallel(toolCalls[index])) {
+          batch.push(toolCalls[index]);
+          index++;
+        }
+        const bags = await Promise.all(batch.map((tc) => this.executeOneToolCall(tc)));
+        for (const bag of bags) this.history.push(...bag);
+      } else {
+        const bag = await this.executeOneToolCall(toolCalls[index]);
+        this.history.push(...bag);
+        index++;
+      }
+    }
+    return true;
+  }
+
+  private canRunReadInParallel(tc: ToolCall): boolean {
+    if (!PARALLEL_READ_TOOLS.has(tc.function.name)) return false;
+    let args: any = {};
+    try {
+      args = JSON.parse(tc.function.arguments || '{}');
+    } catch {
+      return false;
+    }
+    const policy = evaluateToolCall(tc.function.name, args, {
+      permissionMode: this.options.permissionMode,
+      autoApprove: this.options.autoApprove,
+      allowedShellCommands: this.options.allowedShellCommands,
+      deniedShellPatterns: this.options.deniedShellPatterns,
+    });
+    return !policy.blocked && !policy.needsApproval;
+  }
+
+  private async executeOneToolCall(tc: ToolCall): Promise<Message[]> {
+    const messages: Message[] = [];
+    {
       this.throwIfStopped();
       const tool = getTool(tc.function.name);
       if (!tool) {
         this.ui.error(`Unknown tool: ${tc.function.name}`);
-        this.history.push({
+        messages.push({
           role: 'tool',
           tool_call_id: tc.id,
           name: tc.function.name,
           content: `Error: Unknown tool "${tc.function.name}". Available tools: ${Object.keys(allTools).join(', ')}`,
         });
-        continue;
+        return messages;
       }
 
       let args: any;
@@ -815,13 +890,13 @@ export class Agent {
             pseudoShellAdviceMessage(args.command) ||
             `Unable to derive a runnable command from ${JSON.stringify(args.command)}`;
           this.ui.warn(`Could not normalize vague shell wording (no confident match from model).`);
-          this.history.push({
+          messages.push({
             role: 'tool',
             tool_call_id: tc.id,
             name: tc.function.name,
             content: `${advice}\n(yamx: model-assisted normalization returned no safe substitution; pick an explicit installer binary first, e.g. winget/py/pip/apt/brew.)`,
           });
-          continue;
+          return messages;
         }
       }
 
@@ -837,13 +912,13 @@ export class Agent {
         } else {
           this.ui.neuralStatus('guard', `avoided duplicate ${tc.function.name}; trying a different path`);
         }
-        this.history.push({
+        messages.push({
           role: 'tool',
           tool_call_id: tc.id,
           name: tc.function.name,
           content: msg,
         });
-        continue;
+        return messages;
       }
 
       const policy = evaluateToolCall(tc.function.name, args, {
@@ -855,13 +930,13 @@ export class Agent {
       if (policy.blocked) {
         const msg = `Policy blocked ${tc.function.name}: ${policy.reason}`;
         this.ui.warn(msg);
-        this.history.push({
+        messages.push({
           role: 'tool',
           tool_call_id: tc.id,
           name: tc.function.name,
           content: msg,
         });
-        continue;
+        return messages;
       }
 
       if (this.options.hooksEnabled !== false) {
@@ -872,13 +947,13 @@ export class Agent {
         if (hook.blocked) {
           const msg = `PreToolUse hook blocked ${tc.function.name}: ${hook.errors.join('\n') || hook.output}`;
           this.ui.warn(msg);
-          this.history.push({
+          messages.push({
             role: 'tool',
             tool_call_id: tc.id,
             name: tc.function.name,
             content: msg,
           });
-          continue;
+          return messages;
         }
       }
 
@@ -889,37 +964,30 @@ export class Agent {
         if (this.options.nonInteractiveApprovals === 'deny') {
           const msg = `Action requires approval and was blocked in non-interactive mode: ${policy.reason}`;
           this.ui.warn(msg);
-          this.history.push({
+          messages.push({
             role: 'tool',
             tool_call_id: tc.id,
             name: tc.function.name,
             content: msg,
           });
-          continue;
+          return messages;
         }
 
         if (this.options.nonInteractiveApprovals !== 'allow') {
-          this.ui.approvalNeeded(tc.function.name, args);
-
-        const { approved } = await inquirer.prompt([
-          {
-            type: 'confirm',
-            name: 'approved',
-            message: isDangerous
-              ? '⚠️  This is a DANGEROUS operation. Proceed?'
-              : 'Allow this action?',
-            default: !isDangerous,
-          },
-        ]);
+          this.ui.approvalNeeded(tc.function.name, args, isDangerous);
+          const approved = await this.ui.confirmAction(
+            'Do you want to proceed?',
+            !isDangerous
+          );
 
           if (!approved) {
-            this.history.push({
+            messages.push({
               role: 'tool',
               tool_call_id: tc.id,
               name: tc.function.name,
               content: 'Action was DENIED by the user. Try a different approach or ask for clarification.',
             });
-            continue;
+            return messages;
           }
         }
       }
@@ -946,6 +1014,7 @@ export class Agent {
 
         const result = await tool.execute(args);
         const duration = Date.now() - startTime;
+        if (FILE_EDIT_TOOLS.has(tc.function.name) && fileEditChanged(result)) this.editGeneration += 1;
         this.ui.toolResult(tc.function.name, result, duration);
 
         if (this.options.hooksEnabled !== false) {
@@ -960,7 +1029,7 @@ export class Agent {
           }
         }
 
-        this.history.push({
+        messages.push({
           role: 'tool',
           tool_call_id: tc.id,
           name: tc.function.name,
@@ -985,7 +1054,7 @@ export class Agent {
         }
 
         const enrichedError = this.buildFailureProtocolBlob(tc.function.name, `${errorMsg}\n${error?.stack || ''}`);
-        this.history.push({
+        messages.push({
           role: 'tool',
           tool_call_id: tc.id,
           name: tc.function.name,
@@ -997,12 +1066,11 @@ export class Agent {
         }
       }
     }
-
-    return true; // continue the loop
+    return messages;
   }
 
   private toolCallKey(name: string, args: unknown): string {
-    return `${name}:${this.stableStringify(args)}`;
+    return commandRepeatKey(name, args, this.editGeneration);
   }
 
   private repeatLimit(name: string): number {
@@ -1023,9 +1091,7 @@ export class Agent {
     if (readOnlyRepeatable.has(name)) {
       return ENGINEERING_MODE === 'elite' ? 3 : ENGINEERING_MODE === 'advanced' ? 2 : 2;
     }
-    if (name === 'run_command') {
-      return ENGINEERING_MODE === 'elite' ? 2 : 1;
-    }
+    if (name === 'run_command') return 1;
     return 1;
   }
 
@@ -1041,13 +1107,6 @@ export class Agent {
       'git_status',
       'git_diff',
     ]).has(name);
-  }
-
-  private stableStringify(value: unknown): string {
-    if (value === null || typeof value !== 'object') return JSON.stringify(value);
-    if (Array.isArray(value)) return `[${value.map((v) => this.stableStringify(v)).join(',')}]`;
-    const obj = value as Record<string, unknown>;
-    return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${this.stableStringify(obj[k])}`).join(',')}}`;
   }
 
   private compactToolResultForHistory(toolName: string, result: string): string {

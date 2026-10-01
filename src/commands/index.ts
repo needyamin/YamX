@@ -13,6 +13,7 @@ import { changeWorkspaceDirectory, getWorkspaceRelativeCwd, PROJECT_ROOT } from 
 import { UI } from '../ui.js';
 import { ContextEngine } from '../context.js';
 import { parseScanDepthFromArgs, runOfflineProjectScanAndSave } from '../offline-project-scan.js';
+import { getCommandCorrections, translateCommand, currentTarget } from '../command-corrections.js';
 
 export type PersistCtx = { store: SessionStore; session: ChatSession; agent: Agent };
 
@@ -22,7 +23,8 @@ export async function handleCommand(
   provider: Provider,
   persistCtx: PersistCtx | undefined,
   cfg: any,
-  runShellCommand: (command: string, agent: Agent, autoApprove: boolean, diagnoseOnFailure?: boolean) => Promise<void>
+  runShellCommand: (command: string, agent: Agent, autoApprove: boolean, diagnoseOnFailure?: boolean) => Promise<void>,
+  extras?: { onConnect?: () => Promise<void> }
 ): Promise<void> {
   const ui = agent.getUI();
   const cmd = input.split(' ')[0].toLowerCase();
@@ -79,6 +81,37 @@ export async function handleCommand(
     case '/pwd':
       ui.info(`cwd: ${getWorkspaceRelativeCwd()}`);
       break;
+    case '/fix': {
+      const line = input.replace(/^\s*\/fix\b/i, '').trim();
+      if (!line) {
+        ui.info('Usage: /fix <command> — preview how YamX would correct a wrong command (dry run).');
+        break;
+      }
+      const fixes = await getCommandCorrections(line).catch(() => []);
+      if (fixes.length === 0) {
+        ui.info(`No local correction found for: ${line}`);
+        break;
+      }
+      ui.info(`Corrections for: ${line}`);
+      fixes.slice(0, 5).forEach((fix, index) => {
+        ui.info(`  [${index + 1}] ${fix.corrected}   (${fix.kind}, ${Math.round(fix.confidence * 100)}% — ${fix.reason}${fix.dangerous ? '; flagged dangerous — will not auto-run' : ''})`);
+      });
+      break;
+    }
+    case '/translate': {
+      const line = input.replace(/^\s*\/translate\b/i, '').trim();
+      if (!line) {
+        ui.info(`Usage: /translate <command> — translate a command to this platform's native equivalent (${currentTarget()}).`);
+        break;
+      }
+      const result = translateCommand(line, currentTarget());
+      if (!result) {
+        ui.info(`No translation needed/available for: ${line} (target: ${currentTarget()})`);
+        break;
+      }
+      ui.info(`On ${result.target}: ${result.corrected}   (${Math.round(result.confidence * 100)}% — ${result.reason})`);
+      break;
+    }
     case '/scan': {
       const rest = input.replace(/^\s*\/scan\b/i, '').trim();
       const depth = parseScanDepthFromArgs(rest);
@@ -132,6 +165,13 @@ export async function handleCommand(
     }
     case '/model':
       ui.info(`Provider: ${provider.name} | Model: ${provider.modelId}`);
+      break;
+    case '/connect':
+      if (!extras?.onConnect) {
+        ui.info('Run yamx --onboard to connect a model.');
+        break;
+      }
+      await extras.onConnect();
       break;
     case '/cost': {
       const stats = agent.getUsageStats();
@@ -249,7 +289,7 @@ async function runBuiltinSubagent(cmd: string, input: string, provider: Provider
 async function runSubagent(name: string, task: string, provider: Provider, ui: UI): Promise<void> {
   ui.startThinking(`Running ${name} subagent...`);
   try {
-    const result = await new SubagentRunner(provider).run(name, task);
+    const result = await new SubagentRunner(provider).run(name, task, { ui });
     ui.stopSpinner();
     console.log('\n' + ui.renderMarkdown(result, { bypassCap: true }));
   } catch (error: any) {

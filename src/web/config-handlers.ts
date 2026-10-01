@@ -71,6 +71,10 @@ function mergeProviders(current: YamConfig['providers'], patch: unknown): YamCon
     if ((incoming as Record<string, unknown>).baseUrl !== undefined) {
       merged.baseUrl = (incoming as Record<string, unknown>).baseUrl;
     }
+    const extra = (incoming as Record<string, unknown>).extraHeaders;
+    if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
+      merged.extraHeaders = extra;
+    }
     (next as Record<string, unknown>)[name] = merged;
   }
   return next as YamConfig['providers'];

@@ -284,6 +284,8 @@ function translateSimpleUnixInspectionForCmd(command: string): string {
   if (/^(command\s+-v|which)\s+([^\s|&<>]+)\s*$/i.test(c)) return `where ${c.replace(/^(command\s+-v|which)\s+/i, '')}`;
   if (/^uname(\s+-[a-z]+)?\s*$/i.test(c)) return 'ver';
   if (/^ifconfig\s*$/i.test(c)) return 'ipconfig';
+  if (/^ip\s*$/i.test(c)) return 'ipconfig';
+  if (/^ip\s+link\s*$/i.test(c)) return 'ipconfig';
   if (/^ip\s+addr\s*$/i.test(c)) return 'ipconfig';
   if (/^ip\s+route\s*$/i.test(c)) return 'route print';
   if (/^traceroute\b/i.test(c)) return c.replace(/^traceroute\b/i, 'tracert');
@@ -348,6 +350,8 @@ function isSimpleUnixInspectionForCmd(command: string): boolean {
     || /^(command\s+-v|which)\s+([^\s|&<>]+)\s*$/i.test(c)
     || /^uname(\s+-[a-z]+)?\s*$/i.test(c)
     || /^ifconfig\s*$/i.test(c)
+    || /^ip\s*$/i.test(c)
+    || /^ip\s+link\s*$/i.test(c)
     || /^ip\s+(addr|route)\s*$/i.test(c)
     || /^traceroute\b/i.test(c)
     || /^ss\s+-[a-z]+\s*$/i.test(c)

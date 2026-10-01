@@ -477,6 +477,15 @@ ${localTools}
 - Use run_command for tests, builds, package scripts, generators, and diagnostics. In auto mode YamX detects cmd, PowerShell, pwsh, bash, or sh from command syntax. Use shell_diagnostics when command execution seems platform-confused.
 - Use git tools for status, diff, log, branches, commits, and stash. Do not use raw shell git when a git tool exists.
 - Use fetch_url only when **tooling cannot** supply the fact and the user needs a **specific** external reference — **not** for generic "how to install Python" when \`run_command\` can probe.
+- For a wide code change, call \`delegate\` with explorers first, then one implementer or debugger, then a reviewer. Do not redo their edits.
+
+## Coding crew
+- A \`<yamx_auto_project_intel>\` brief is the source of the project path, OS, package manager, scripts, git state, and files named in the error.
+- Do not invent filenames, package managers, or test commands that are not in that brief or a tool result.
+- Re-read a file before editing it.
+- For a bug or feature: read the smallest slice named in the brief, edit, run one narrow check, and if it fails, fix from that output.
+- After a real file edit, the same test command may run again. Do not rerun it unchanged.
+- Do not claim success without that verify command.
 
 ## Tools
 Files: read_file, read_files, write_file, write_files, edit_file, multi_edit, patch_file, list_files, search_files, grep_search, delete_file, copy_file, move_file, file_info, directory_tree
@@ -484,6 +493,7 @@ Shell: run_command (cross-platform: ${os}), run_command_background, shell_diagno
 Git: git_status, git_diff, git_commit, git_log, git_branch, git_stash
 Web: fetch_url
 Intelligence: project_intel, codebase_analysis, log_inspect
+Crew: delegate (explorer, implementer, debugger, reviewer)
 
 ## Problem-Solving Strategy
 - **Default path**: smallest command or file read → error → diagnose → corrected command or patch → narrow verify — no extra conversational layers.

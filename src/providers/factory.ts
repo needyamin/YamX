@@ -1,13 +1,7 @@
 import { Provider } from './base.js';
-import { OpenAIProvider } from './openai.js';
-import { AnthropicProvider } from './anthropic.js';
-import { GeminiProvider } from './gemini.js';
-import { OllamaProvider } from './ollama.js';
-import { OpenRouterProvider } from './openrouter.js';
-import { KimiProvider } from './kimi.js';
-import { GrokProvider } from './grok.js';
+import { OpenAIChatProvider } from './openai-chat.js';
 
-export type ProviderName = 'openai' | 'anthropic' | 'gemini' | 'kimi' | 'grok' | 'openrouter' | 'ollama';
+export type ProviderName = 'openai' | 'anthropic' | 'gemini' | 'kimi' | 'grok' | 'openrouter' | 'ollama' | 'custom';
 
 const PROVIDER_NAMES = new Set<ProviderName>([
   'openai',
@@ -17,6 +11,7 @@ const PROVIDER_NAMES = new Set<ProviderName>([
   'grok',
   'openrouter',
   'ollama',
+  'custom',
 ]);
 
 export function normalizeProviderName(value: unknown): ProviderName {
@@ -31,6 +26,8 @@ export function resolveCloudApiKey(cfg: any, provider: Exclude<ProviderName, 'ol
       return prov.kimi?.apiKey || process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY;
     case 'grok':
       return prov.grok?.apiKey || process.env.XAI_API_KEY;
+    case 'custom':
+      return prov.custom?.apiKey || process.env.YAMX_CUSTOM_API_KEY;
     default: {
       const block = prov[provider] as { apiKey?: string } | undefined;
       return block?.apiKey || process.env[`${provider.toUpperCase()}_API_KEY`];
@@ -45,60 +42,49 @@ export function providerUsesCloudApiKey(p: ProviderName): boolean {
 
 /** True when config + env has a credential for this provider (always true for Ollama). */
 export function hasCloudApiKey(cfg: any, provider: ProviderName): boolean {
+  if (provider === 'custom') {
+    const base = cfg?.providers?.custom?.baseUrl || process.env.YAMX_CUSTOM_BASE_URL;
+    return Boolean(base && String(base).trim());
+  }
   if (!providerUsesCloudApiKey(provider)) return true;
   const key = resolveCloudApiKey(cfg, provider as Exclude<ProviderName, 'ollama'>);
   return Boolean(key && String(key).trim());
 }
 
-export function createProvider(name: string, model: string | undefined, cfg: any): Provider {
-  const provider = normalizeProviderName(name);
-  switch (provider) {
-    case 'openai': {
-      const key = resolveCloudApiKey(cfg, 'openai');
-      if (!key) throw new Error('OpenAI API key not found. Set OPENAI_API_KEY or run: yamx --onboard');
-      const openaiBlock = cfg.providers?.openai as { model?: string; baseUrl?: string } | undefined;
-      const baseURL =
-        (openaiBlock?.baseUrl && String(openaiBlock.baseUrl).trim()) ||
-        process.env.OPENAI_BASE_URL?.trim() ||
-        process.env.YAMX_OPENAI_BASE_URL?.trim();
-      return new OpenAIProvider(
-        key,
-        model || openaiBlock?.model || 'gpt-5.2',
-        baseURL || undefined
-      );
-    }
-    case 'anthropic': {
-      const key = resolveCloudApiKey(cfg, 'anthropic');
-      if (!key) throw new Error('Anthropic API key not found. Set ANTHROPIC_API_KEY or run: yamx --onboard');
-      return new AnthropicProvider(key, model || cfg.providers?.anthropic?.model || 'claude-sonnet-4-20250514');
-    }
-    case 'gemini': {
-      const key = resolveCloudApiKey(cfg, 'gemini');
-      if (!key) throw new Error('Gemini API key not found. Set GEMINI_API_KEY or run: yamx --onboard');
-      return new GeminiProvider(key, model || cfg.providers?.gemini?.model || 'gemini-3-flash-preview');
-    }
-    case 'kimi': {
-      const key = resolveCloudApiKey(cfg, 'kimi');
-      if (!key) {
-        throw new Error(
-          'Kimi / Moonshot API key not found. Set KIMI_API_KEY, MOONSHOT_API_KEY (see platform.kimi.ai), or run: yamx --onboard'
-        );
-      }
-      return new KimiProvider(key, model || cfg.providers?.kimi?.model || 'kimi-k2.6');
-    }
-    case 'grok': {
-      const key = resolveCloudApiKey(cfg, 'grok');
-      if (!key) throw new Error('xAI Grok API key not found. Set XAI_API_KEY (see console.x.ai) or run: yamx --onboard');
-      return new GrokProvider(key, model || cfg.providers?.grok?.model || 'grok-4.3');
-    }
-    case 'ollama': {
-      const baseUrl = cfg.providers?.ollama?.baseUrl || 'http://localhost:11434';
-      return new OllamaProvider(baseUrl, model || cfg.providers?.ollama?.model || 'qwen2.5-coder');
-    }
-    case 'openrouter': {
-      const key = resolveCloudApiKey(cfg, 'openrouter');
-      if (!key) throw new Error('OpenRouter API key not found. Set OPENROUTER_API_KEY or run: yamx --onboard');
-      return new OpenRouterProvider(key, model || cfg.providers?.openrouter?.model || 'deepseek-chat');
-    }
+/** Accept an http(s) chat base URL. A pasted /chat/completions path is stripped. */
+export function normalizeChatBaseUrl(raw: string): string | null {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
   }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  let path = url.pathname.replace(/\/+$/, '');
+  path = path.replace(/\/chat\/completions$/i, '').replace(/\/+$/, '');
+  url.pathname = path || '/';
+  url.search = '';
+  url.hash = '';
+  return url.toString().replace(/\/$/, '');
+}
+
+/** Every connected model is the saved custom endpoint. Named provider names are ignored. */
+export function createProvider(_name: string, model: string | undefined, cfg: any): Provider {
+  const block = cfg?.providers?.custom as
+    | { apiKey?: string; model?: string; baseUrl?: string; extraHeaders?: Record<string, string> }
+    | undefined;
+  const baseURL = String(block?.baseUrl || process.env.YAMX_CUSTOM_BASE_URL || '').trim();
+  if (!baseURL) {
+    throw new Error('Custom endpoint not configured. Set base URL, API key, and model with: yamx --onboard');
+  }
+  const key = String(block?.apiKey || process.env.YAMX_CUSTOM_API_KEY || '').trim() || 'not-needed';
+  return new OpenAIChatProvider({
+    name: 'custom',
+    apiKey: key,
+    model: model || block?.model || process.env.YAMX_CUSTOM_MODEL || 'custom',
+    baseURL,
+    defaultHeaders: block?.extraHeaders,
+  });
 }

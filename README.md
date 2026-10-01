@@ -1,56 +1,12 @@
 # YamX
 
-YamX is a terminal-first coding and operations agent designed for practical local work:
+YamX (`yamx`) is a terminal coding agent. It starts with no model, runs local commands immediately, and when a model is connected it writes code, edits files, debugs failures, and applies fixes from a local picture of the project.
 
-- debug and repair build/package issues
-- inspect logs and run shell workflows
-- edit repositories safely
-- support DevOps, full-stack ops, network diagnostics, and defensive security tasks
+Version 1.0.30. Node.js 18+.
 
-YamX is optimized for "do the work now" execution, not tutorial-style long answers.
+The prompt is `>`. A pixel **YamX** mark plays on startup, then a card shows the folder, `local · offline` (or the connected model), the session, and the version.
 
-<img width="80" height="80" alt="YamX" src="https://github.com/user-attachments/assets/0d327064-4213-46c3-b2cf-5f69d0f87664" />
-<img width="1919" height="909" alt="Image" src="https://github.com/user-attachments/assets/34a9336e-e428-4edf-b63b-067eb1a6d7ce" />
-
-## Requirements
-
-- Node.js 18+
-
-## Documentation
-
-- Combined docs site: [docs/docs.html](docs/docs.html)
-- Project engineering memory: [docs/context-memory.md](docs/context-memory.md)
-- Publish notes: [docs/publish.txt](docs/publish.txt)
-
-Note: `docs/docs.html` uses Bootstrap CDN assets. Open directly or serve `docs/` locally.
-
-## Who YamX is for
-
-- Developers: code changes, package scripts, test/build errors, repository workflows
-- DevOps and full-stack operators: process/log/config/network checks before risky mutation
-- Network engineers: DNS, routes, listeners, reachability, protocol-level diagnostics
-- Defensive security engineers: secure review, CVE triage, secrets and posture checks
-
-## Core behavior
-
-- Offline-first: prefer local files, local tools, local logs, local process state
-- Intent-aware: greeting/chat does not trigger heavy diagnostics
-- Command-first: direct shell-like input can execute without model round-trips
-- Session-based: persistent history and memory under `~/.yamx` and project `.yamx`
-- Safety-first: risky/destructive actions require explicit allowance
-
-## Elite Coder Intelligence (v1.0.29+)
-
-YamX incorporates an Advanced Code Reasoning Engine and a sophisticated Model Council designed to act as a principal engineer:
-
-- **Smart Dependency Graph Detection**: Before multi-file edits, the `find_references` tool analyzes import/export chains to ensure all consumers of a modified symbol are updated.
-- **Elite Debugging Protocol**: It implements binary search isolation and enforces the "Cascading Error Rule" (fixing only the very first error in a compiler stack trace).
-- **Architecture-Aware Context**: Automatically detects and adapts to patterns like MVC, microservices, Next.js, NestJS, Vite, and Prisma.
-- **Multi-File Refactoring**: Enforces a strict dependency order (types -> implementations -> consumers -> tests) to prevent intermediate broken states.
-
-## Install
-
-Global:
+## Start
 
 ```bash
 npm install -g @needyamin/yamx@latest
@@ -60,70 +16,146 @@ yamx
 From this repository:
 
 ```bash
-git clone https://github.com/needyamin/yamx.git
-cd yamx
 npm install
-npm link
+npm run build
+node dist/index.js
 ```
 
-No global install:
+`npm run dev` starts without a separate build. `npm link` puts `yamx` on your PATH.
+
+YamX opens even when no API key is set. The card reads `local · offline`. Shell lines such as `git status` run on this machine. On Windows, `ip` runs as `ipconfig` and `ps` runs as `tasklist`. Dangerous commands still ask before they run.
+
+Connect a model with `/connect` or `yamx --onboard`. Enter the base URL, API key, and any model name for an OpenAI-compatible chat endpoint (usually a URL ending in `/v1`).
+
+```text
+Base URL    https://api.example.com/v1
+API key     sk-...          (optional for a local server)
+Model name  my-model
+```
+
+YamX stores those fields, plus optional extra headers, as `providers.custom` in `~/.yamx/config.json`. Leave the API key blank later to keep the saved key.
 
 ```bash
-npx @needyamin/yamx
+yamx --onboard     # set base URL, API key, and model name
+yamx --diagnose    # saved endpoint, git, sessions
+yamx web           # local web UI on 127.0.0.1:8765
 ```
 
-System package (Debian/Ubuntu):
+## Coding architecture
+
+A write, fix, or debug turn reads the project from disk first. That brief is what the model and its sub-agents use. Greetings and bare shell lines do not take this path.
+
+```mermaid
+flowchart TD
+  user[User turn] --> brief[Local project brief]
+  brief --> gate{Model connected?}
+  gate -->|no| hold[Save brief and ask to connect]
+  hold --> parent
+  gate -->|yes| parent[Parent agent loop]
+  parent --> tools[Read grep edit shell]
+  parent --> crew[delegate tool]
+  crew --> explore[Explorer read-only parallel]
+  crew --> debug[Debugger reproduce and fix]
+  crew --> review[Reviewer read-only]
+  explore --> parent
+  debug --> parent
+  review --> parent
+  parent --> verify[Rerun the failing command after edits]
+```
+
+The brief always includes the absolute project path, working directory, OS, shell, package manager, the test / lint / build scripts that exist, git branch and dirty state, entry files, and any files named in the error you pasted.
+
+If no model is connected, YamX saves the brief and asks you to `/connect`. The next coding turn sends that brief with the request. The model does not invent paths or commands that are not in the brief or a tool result.
+
+Sub-agents:
+
+| Role | What it does |
+| --- | --- |
+| explorer | Read, grep, and map the repo. Runs in parallel with other explorers and the reviewer. |
+| implementer | Reads, then edits with `edit_file`, `multi_edit`, `patch_file`, or `write_file`. |
+| debugger | Reproduces the failure, edits, then reruns the same command. |
+| reviewer | Reads `git status` and `git diff`. Does not edit. |
+
+Only one writer runs at a time, and it locks the paths it names. Each child returns a short report (files changed, commands, first error, whether verify passed). The parent does not redo those edits. `/explore`, `/plan`, `/review`, and `/agent` use the same runner.
+
+After a real file edit, the same test or build command is allowed to run again. An unchanged rerun is skipped.
+
+`settings.subagents.maxParallel` defaults to 3. `settings.subagents.maxIterations` defaults to 12.
+
+## Two binaries
+
+| Binary | What it is |
+| --- | --- |
+| `yamx` | The coding REPL. Sessions, 33 tools, project brief, sub-agents, and any connected model. |
+| `ymax` | The offline router. One local expert handles a command. No API key. |
 
 ```bash
-# Add the repository
-curl -fsSL https://needyamin.github.io/yamx/apt/KEY.gpg | sudo gpg --dearmor -o /usr/share/keyrings/ymax.gpg
-echo "deb [signed-by=/usr/share/keyrings/ymax.gpg] https://needyamin.github.io/yamx/apt stable main" | sudo tee /etc/apt/sources.list.d/ymax.list
-
-# Install
-sudo apt-get update
-sudo apt-get install ymax
+ymax "git status"
+ymax "read package.json"
+ymax help
 ```
 
-Build `.deb` locally:
+## In-session commands
+
+| Command | |
+| --- | --- |
+| `/help` | List commands |
+| `/connect` | Set base URL, API key, and model name |
+| `/model` | Provider and model in use |
+| `/explore` `/plan` `/review` | Read-only sub-agents |
+| `/agent <name> <task>` | Run a built-in or custom sub-agent |
+| `/agents` | List sub-agents |
+| `/scan [quick\|deep]` | Offline project scan to `.yamx/project-summary.md` |
+| `/tools` | List tools |
+| `/diff` `/status` | Git diff and session snapshot |
+| `/undo` | Revert the last file edits from this turn |
+| `/stop` | Stop the current turn |
+| `/exit` | Save and quit |
+
+Custom sub-agents are markdown files in `.yamx/agents/` or `~/.yamx/agents/`.
+
+## Built-in tools (33)
+
+- Files: `read_file`, `read_files`, `write_file`, `write_files`, `edit_file`, `list_files`, `search_files`, `delete_file`
+- Edits and search: `multi_edit`, `copy_file`, `move_file`, `file_info`, `grep_search`, `directory_tree`, `patch_file`, `find_references`
+- Shell: `run_command`, `run_command_background`, `shell_diagnostics`, `task_list`, `task_tail`, `task_stop`
+- Git: `git_status`, `git_diff`, `git_commit`, `git_log`, `git_branch`, `git_stash`
+- Web and intel: `fetch_url`, `project_intel`, `codebase_analysis`, `log_inspect`
+- Crew: `delegate`
+
+Destructive commands and deletes still ask for approval.
+
+## Connect
+
+`/connect`, `yamx --onboard`, and the web Settings → Model page use the same fields: base URL, API key, model name, and optional extra headers. They are stored as `providers.custom`.
+
+Environment overrides: `YAMX_CUSTOM_BASE_URL`, `YAMX_CUSTOM_API_KEY`, `YAMX_CUSTOM_MODEL`.
 
 ```bash
-npm run package:deb
-sudo dpkg -i dist/ymax_*.deb
-sudo apt-get install -f
+yamx -m my-model
 ```
 
-### Two binaries
+A saved OpenRouter, OpenAI, or other named provider in an older config does not start. With no base URL, YamX stays offline.
 
-| Binary | Entry point | What it is |
-| --- | --- | --- |
-| `ymax` | `dist/ymax.js` | Router-based CLI. Offline-first, centralized routing into domain experts. Needs no API key. |
-| `yamx` | `dist/index.js` | Original agent CLI: sessions, 32 tools, codebase intelligence, multi-provider LLMs. |
+## Configuration
 
-npm and the Debian package both install both binaries. They are independent entry points — `yamx` is unchanged.
+`~/.yamx/config.json` holds providers and settings. Sessions live in `~/.yamx/sessions/`. Project memory lives in `.yamx/`.
 
-### How `ymax` routes input
+Settings that matter for coding:
 
-1. **Direct shell fast-path** — if the first token is a known command (`ls`, `git`, `docker`, `ip`, `npm`, …), it executes immediately. No classification, no model round-trip.
-2. **Intent classification** — a declarative route table matched in three tiers: exact pattern → keyword scoring with TF-IDF-style weights → fuzzy distance plus history boost.
-3. **Domain expert** — the winning route dispatches to one of eight experts: general, filesystem, shell, git, devops, security, project, web.
+- `permissionMode` — `default`, `ask`, `read-only`, or `auto-safe`
+- `autoApprove`, `allowedShellCommands`, `deniedShellPatterns`
+- `subagents.enabled`, `subagents.maxParallel`, `subagents.maxIterations`
+- `preflightRuntimeProbes` — local probes before install and diagnose turns
+- `streamOutput`, `maxTokens`, `temperature`
+- `contextBudgetChars`, `maxToolResultChars`, `maxAssistantMarkdownChars`
 
 ```bash
-ymax "ip addr"            # shell fast-path
-ymax "git status"         # shell fast-path
-ymax "read package.json"  # filesystem expert
-ymax "scan for secrets"   # security expert
-ymax help                 # general expert
+yamx config
+yamx --reset-config
 ```
 
-The AI layer in `src/ai/` ships with a `NullProvider` as the default, so `ymax` is fully functional offline. Plugging in a real provider is a drop-in change behind `AiProvider`.
-
-Uninstall:
-
-```bash
-npm uninstall -g @needyamin/yamx
-```
-
-Delete all YamX local data:
+Remove local data:
 
 ```bash
 # macOS / Linux
@@ -133,338 +165,68 @@ rm -rf ~/.yamx
 Remove-Item -Recurse -Force $HOME\.yamx
 ```
 
-## First run
-
-```bash
-yamx --onboard
-yamx --diagnose
-yamx
-```
-
-If `~/.yamx/config.json` is missing, or the selected cloud provider has no API key, YamX auto-starts onboarding before normal chat.
-
-## Daily workflows
-
-1. Debug package/build errors:
-- run project command
-- inspect exact failing output
-- apply smallest fix
-- rerun narrow verification command
-
-2. Repository edits:
-- inspect files first
-- patch minimally
-- preserve existing style and structure
-
-3. Ops and infrastructure:
-- process -> logs -> config -> ports/network -> permissions -> dependencies -> runtime mismatch
-
-4. Defensive security:
-- authorized and defensive scope only
-- prioritize detection, triage, hardening, and remediation guidance
-
 ## Web UI
-
-Start:
 
 ```bash
 yamx web
 yamx web --host 127.0.0.1 --port 8765
-yamx web --allow-dangerous
 ```
 
-Default bind is loopback (`127.0.0.1`). Keep it local unless you add your own auth/proxy controls.
+The server binds to loopback. `--allow-dangerous` permits risky commands from the browser. The page can chat, switch sessions, and set a model under Settings, Model.
 
-**Shell** (conversation) uses a responsive two-column layout on wide viewports (~8×4 proportions): the conversation fills the wider column; a scrollable **Sessions** rail sits beside it with **New**, **Refresh**, and **Expand** (opens the Sessions tab); each row exposes **Use**, **Rename**, and **Delete**. It mirrors `/api/sessions` with the Sessions tab. On narrower viewports those regions stack vertically.
-
-Inside the Conversation card:
-
-- **Execution mode · Provider** is a collapsible row (expanded with `[+]` / `[-]` like Execution lab). It configures execution mode (**auto**, **shell**, **agent**) and **Provider**, which PATCHes **`defaultProvider`**—the runtime cache resets on save so the next message picks it up.
-- A **provider readiness strip** reports whether an API key is required, whether YamX sees credentials (config or env vars), readiness for agent turns versus a warmed agent session, and a short remediation hint—the same server logic as credential checks in onboarding.
-- **Execution lab** remains a separate expandable block (shell runtime, timeouts, profiles, runbook).
-
-**Navigation panels**:
-
-- Shell
-- Settings
-- Sessions
-- Tools & API
-- Engineering readiness card (offline diagnostics and challenge suites)
-
-Detailed UI docs: [docs/docs.html#web](docs/docs.html#web)
-
-## HTTP API
-
-Base URL is the web server URL (default `http://127.0.0.1:8765`).
-
-Route discovery:
-
-- `GET /api/routes`
-
-Core endpoints:
-
-- `GET /api/state` (cwd, resolved provider/model, optional `sessionId`, `allowDangerous`, plus readiness: `providerUsesApiKey`, `providerApiKeyConfigured`, `agentCanRun`, optional `providerHint`, `sessionWarm`)
-- `GET /api/info`
-- `GET /api/config`
-- `PATCH /api/config`
-- `POST /api/config/reset`
-- `POST /api/runtime/reload`
-
-Session CRUD:
-
-- `GET /api/sessions`
-- `POST /api/sessions`
-- `GET /api/sessions/:id`
-- `PATCH /api/sessions/:id`
-- `DELETE /api/sessions/:id`
-- `POST /api/sessions/active`
-
-Agent and tools:
-
-- `GET /api/tools`
-- `POST /api/command`
-- `POST /api/chat`
-
-Engineering diagnostics:
-
-- `GET /api/engineering/readiness` (`?force=1` optional)
-- `POST /api/engineering/challenge`
-  - body: `{ "suite": "all|vm|fullstack|devops|network|security", "profile": "standard|deep", "force": true|false }`
-
-Detailed API docs: [docs/docs.html#api](docs/docs.html#api)
-
-## Offline-first intelligence and engineering modes
-
-YamX includes two important runtime layers:
-
-- Engineering loop mode (`YAMX_ENGINEERING_MODE`)
-  - `balanced | advanced | elite` (default `elite`)
-  - affects repair discipline, escalation hints, and retry strategy
-
-- Command intelligence tier (`YAMX_INTELLIGENCE_LEVEL` or `YAMX_INTELLIGENCE_TIER`)
-  - `balanced | advanced | top` (default `top`)
-  - affects local command ranking, typo tolerance, capability weighting, and probe-first scoring
-
-Project-local data:
-
-- `.yamx/command-intelligence.json`
-- `.yamx/command-memory.json`
-
-## Input routing model
-
-- Conversational input: short assistant response, no unnecessary heavy workflows
-- Direct command input: shell execution path
-- Ambiguous/task input: agent + tools path
-- Runtime/install/diagnose style asks: optional automatic preflight probes (`settings.preflightRuntimeProbes`)
-
-## Safety and permissions
-
-- Destructive/sensitive behavior is blocked by default in normal operation.
-- Web mode with `--allow-dangerous` can permit risky execution from browser controls.
-- Permission and policy controls are configurable in `settings.permissionMode`.
-- Cybersecurity support is defensive-only and authorized-scope oriented.
-
-## Providers
-
-Supported providers:
-
-- openrouter
-- openai
-- anthropic
-- gemini
-- kimi
-- grok
-- ollama (local)
-
-Cloud API key environment variables:
-
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `GEMINI_API_KEY`
-- `MOONSHOT_API_KEY` or `KIMI_API_KEY`
-- `XAI_API_KEY`
-- `OPENROUTER_API_KEY`
-
-Optional defaults:
-
-- `DEFAULT_PROVIDER`
-- `DEFAULT_MODEL`
-
-## Configuration
-
-Primary config file:
-
-- `~/.yamx/config.json`
-
-Other state files:
-
-- `~/.yamx/state.json`
-- `~/.yamx/sessions/*.json`
-
-Important settings:
-
-- `autoApprove`
-- `streamOutput`
-- `maxTokens`
-- `temperature`
-- `contextBudgetChars`
-- `permissionMode`
-- `allowedShellCommands`
-- `deniedShellPatterns`
-- `hooksEnabled`
-- `modelCouncil.enabled`
-- `modelCouncil.mode`
-- `maxToolResultChars`
-- `subagents.enabled`
-- `subagents.defaultModel`
-- `verboseCli`
-- `maxAssistantMarkdownChars`
-- `preflightRuntimeProbes`
-- `checkForUpdates`
-
-Interactive config:
-
-```bash
-yamx config
-yamx --reset-config
-```
+Useful routes: `GET /api/state`, `GET /api/sessions`, `POST /api/chat`, `POST /api/command`, `GET /api/tools`.
 
 ## CLI reference
-
-Main command:
 
 ```text
 yamx [options]
 ```
 
-Options:
-
-- `-p, --provider <provider>`
-- `-m, --model <model>`
-- `-t, --temperature <temp>`
-- `--max-tokens <tokens>`
+- `-m, --model` — model name sent to the saved endpoint
+- `-t, --temperature`
+- `--max-tokens`
 - `--auto-approve`
 - `--no-stream`
-- `--new-chat`
-- `--resume <id>`
-- `--history`
-- `--clear-chat`
-- `--delete-chat <id>`
-- `--onboard`
-- `--reset-config`
-- `--diagnose`
+- `--new-chat`, `--resume <id>`, `--history`, `--clear-chat`, `--delete-chat <id>`
+- `--onboard`, `--reset-config`, `--diagnose`
 
-Subcommands:
+Subcommands: `yamx config`, `yamx web`.
 
-- `yamx config`
-- `yamx web [--host 127.0.0.1] [--port 8765] [-p provider] [-m model] [--allow-dangerous]`
-
-In-session commands:
-
-- Use `/help` for the authoritative slash-command list in your running version.
-
-## Built-in tools (32)
-
-Files:
-
-- `read_file`, `read_files`, `write_file`, `write_files`, `edit_file`, `list_files`, `search_files`, `delete_file`
-
-Advanced files:
-
-- `multi_edit`, `copy_file`, `move_file`, `file_info`, `grep_search`, `directory_tree`, `patch_file`
-
-Shell:
-
-- `run_command`, `run_command_background`, `shell_diagnostics`, `task_list`, `task_tail`, `task_stop`
-
-Git:
-
-- `git_status`, `git_diff`, `git_commit`, `git_log`, `git_branch`, `git_stash`
-
-Web:
-
-- `fetch_url`
-
-Intelligence and logs:
-
-- `project_intel`, `codebase_analysis`, `log_inspect`, `find_references`
-
-## Develop and contribute
-
-Useful local commands:
+## Develop
 
 ```bash
 npm install
-npx tsc -p config/tsconfig.json --noEmit
-npm run build
+npx tsc -p config/tsconfig.json
 npm test
 npm run dev
-yamx --diagnose
-yamx web --port 8765
 ```
 
-Windows note: if script invocation is blocked, use `npm.cmd ...`.
-
-Project map:
+On Windows, `npm.cmd` is the script runner if PowerShell blocks `npm`.
 
 ```text
-config/tsconfig.json
-config/.env.example
-docs/docs.html
-docs/context-memory.md
-docs/publish.txt
-src/index.ts
-src/agent.ts
-src/context.ts
-src/runtime-preflight.ts
-src/tools/
-src/web/server.ts
-src/web/ui.ts
-src/web/engineering-diagnostics.ts
-src/providers/factory.ts
+src/index.ts            yamx REPL
+src/agent.ts            parent tool loop
+src/subagents.ts        explorer, implementer, debugger, reviewer
+src/project-intel.ts    coding brief
+src/crew-scheduler.ts   parallel readers and writer locks
+src/pixel-logo.ts       startup mark
+src/ymax.ts             offline router
+src/providers/          custom model endpoint and the OpenAI-compatible client
+src/tools/              33 tools, including delegate
 ```
 
 ## Troubleshooting
 
-`yamx` not found:
+`yamx` is not on PATH: the npm global bin directory must be on `PATH`. Open a new terminal after install.
 
-- ensure npm global `bin` is on `PATH`
-- restart terminal after global install
+No model yet: that is the normal start. Use `/connect`. Coding asks wait there until a model is connected. Shell lines still run.
 
-Provider key errors:
+Curl setup rejected: the URL must be `http` or `https` and end in `/v1` or `/chat/completions`.
 
-- run `yamx --onboard`
-- check `~/.yamx/config.json` and env vars
+A command was rewritten badly: short names and shell keywords are not typo-fixed (`ip` stays a network command, not `if`). `/fix` previews a correction. `/translate` shows the native command for this OS.
 
-Long replies are clipped:
-
-- raise `settings.maxAssistantMarkdownChars` in config
-
-Model gives generic install essays:
-
-- keep `settings.preflightRuntimeProbes=true`
-- use a stronger model and lower temperature if needed
-
-Command suggestions feel weak:
-
-- keep `.yamx/command-memory.json` in project
-- use `YAMX_INTELLIGENCE_LEVEL=top`
-
-Build fails on Windows with `EPERM` in `dist/*`:
-
-- this can happen when files are locked by another process
-- close watchers/processes using `dist`, then rerun build
-- as a workaround, build to alternate outDir and copy artifacts
-
-Stale global version:
-
-```bash
-npm uninstall -g @needyamin/yamx
-npm install -g @needyamin/yamx@latest
-```
+Build fails with `EPERM` on `dist`: another `yamx` or `node dist/index.js` still has those files open. Stop it, then build again.
 
 ## License
 
-ISC - [Yamin](https://github.com/needyamin)
-
-<img width="50" height="50" alt="YamX" src="https://github.com/user-attachments/assets/0d327064-4213-46c3-b2cf-5f69d0f87664" />
+ISC — [Yamin](https://github.com/needyamin)

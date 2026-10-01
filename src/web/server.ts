@@ -10,13 +10,7 @@ import { Config, type YamConfig } from '../config/index.js';
 import { ContextEngine } from '../context.js';
 import { SessionStore, type ChatSession } from '../session-store.js';
 import type { Provider } from '../providers/base.js';
-import {
-  createProvider,
-  normalizeProviderName,
-  hasCloudApiKey,
-  providerUsesCloudApiKey,
-  type ProviderName,
-} from '../providers/factory.js';
+import { createProvider, hasCloudApiKey, normalizeChatBaseUrl } from '../providers/factory.js';
 import {
   changeWorkspaceDirectory,
   ensureInsideProject,
@@ -30,6 +24,7 @@ import { classifyShellCommand } from '../tool-risk.js';
 import { pseudoShellAdviceMessage } from '../tools/shell.js';
 import { recordCommandRun } from '../command-memory.js';
 import { parseDirectCommand } from '../direct-command.js';
+import { currentTarget, translateCommand } from '../command-corrections.js';
 import { classifyUserIntent } from '../intent.js';
 import { loadMergeSaveConfig, publicConfigView, resetConfigToDefaults } from './config-handlers.js';
 import { getToolCount, getToolDefinitions, getToolsByCategory } from '../tools/registry.js';
@@ -41,20 +36,49 @@ import {
   runEngineeringChallenge,
 } from './engineering-diagnostics.js';
 import { detectOfflineProjectScanIntent, runOfflineProjectScanAndSave } from '../offline-project-scan.js';
+import {
+  buildAgentInputWithProjectIntel,
+  buildCodingBrief,
+  consumePendingCodingBrief,
+  isCodingTurn,
+  savePendingCodingBrief,
+  shouldAttachProjectIntel,
+  wrapCodingBrief,
+} from '../project-intel.js';
+import { runOfflineIntelligence } from '../offline-repl.js';
+import { OfflineProvider } from '../providers/offline.js';
 
 const require = createRequire(import.meta.url);
 
 const SESSIONS_API = '/api/sessions';
 
-function credentialSetupHint(provider: ProviderName): string {
-  switch (provider) {
-    case 'kimi':
-      return 'Set KIMI_API_KEY or MOONSHOT_API_KEY, or paste a key under Settings, Providers.';
-    case 'grok':
-      return 'Set XAI_API_KEY, or paste a key under Settings, Providers.';
-    default:
-      return `Set ${provider.toUpperCase()}_API_KEY, or paste a key under Settings, Providers.`;
+function modelSetupHint(): string {
+  return 'Add a model under Settings, Model: base URL, API key, and model name.';
+}
+
+function headerLinesToRecord(raw: unknown): Record<string, string> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      const name = key.trim();
+      if (!name) continue;
+      out[name] = String(value ?? '').trim();
+    }
+    return out;
   }
+  const out: Record<string, string> = {};
+  String(raw || '')
+    .split(/\n/)
+    .forEach((line) => {
+      const row = line.trim();
+      if (!row) return;
+      const idx = row.indexOf(':');
+      if (idx <= 0) return;
+      const name = row.slice(0, idx).trim();
+      const value = row.slice(idx + 1).trim();
+      if (name) out[name] = value;
+    });
+  return out;
 }
 
 function yamxConfigFilePath(): string {
@@ -231,10 +255,10 @@ export async function executeWebCommand(options: WebCommandOptions): Promise<Web
     const intent = classifyUserIntent(command);
     const message =
       intent.kind === 'conversation'
-        ? 'Hi. This web panel runs local shell commands. Try `node -v`, `npm test`, `git status`, or use the YamX terminal REPL for chat.'
+        ? 'Hi. YamX is local · offline until a model is connected. Shell lines such as `git status` run here. Ask in chat to write or debug code.'
         : intent.kind === 'clarification'
           ? 'Need a concrete shell command here, for example `npm test` or `git status`.'
-          : 'This web panel only executes command-like input. Use a real command, or prefix one with `run:`.';
+          : 'That is not a shell command. Send it as chat so YamX can use the project brief and tools.';
     return {
       ok: true,
       blocked: false,
@@ -248,7 +272,15 @@ export async function executeWebCommand(options: WebCommandOptions): Promise<Web
     };
   }
 
-  const risk = classifyShellCommand(directCommand);
+  const translated = translateCommand(directCommand, currentTarget());
+  const native = translated && translated.corrected.trim().toLowerCase() !== directCommand.trim().toLowerCase()
+    ? translated.corrected
+    : directCommand;
+  const mapping = native !== directCommand
+    ? (native.length > 80 && translated?.reason ? translated.reason : `${directCommand.trim()} → ${native}`)
+    : '';
+
+  const risk = classifyShellCommand(native);
   if ((risk.destructive || risk.risk === 'sensitive') && !allowDangerous) {
     return {
       ...failure(command, `Blocked: ${risk.reason}. Restart with --allow-dangerous to enable this from the web UI.`, started, allowDangerous),
@@ -257,18 +289,19 @@ export async function executeWebCommand(options: WebCommandOptions): Promise<Web
     };
   }
 
-  const pseudo = pseudoShellAdviceMessage(directCommand);
+  const pseudo = pseudoShellAdviceMessage(native);
   if (pseudo) return failure(command, pseudo, started, allowDangerous);
 
-  const cdTarget = parsePersistentCd(directCommand);
+  const cdTarget = parsePersistentCd(native);
   if (!options.cwd && cdTarget !== undefined) {
     const rel = cdTarget ? changeWorkspaceDirectory(cdTarget) : getWorkspaceRelativeCwd();
+    const body = rel.startsWith('Error:') ? rel : `cwd: ${rel}`;
     return {
       ok: !rel.startsWith('Error:'),
       blocked: false,
       command,
-      executedCommand: directCommand,
-      output: rel.startsWith('Error:') ? rel : `cwd: ${rel}`,
+      executedCommand: native,
+      output: mapping ? `${mapping}\n${body}` : body,
       code: rel.startsWith('Error:') ? 1 : 0,
       timedOut: false,
       durationMs: Date.now() - started,
@@ -282,7 +315,7 @@ export async function executeWebCommand(options: WebCommandOptions): Promise<Web
     : { ok: true as const, path: getWorkspaceCwd() };
   if (!cwd.ok) return failure(command, cwd.error, started, allowDangerous);
 
-  const smart = getSmartShell(directCommand, options.shell || 'auto');
+  const smart = getSmartShell(native, options.shell || 'auto');
   const timeoutMs = boundedNumber(options.timeoutMs, 120_000, 1_000, 600_000);
   const maxChars = boundedNumber(options.maxChars, 80_000, 1_000, 500_000);
   const result = await runProcess(smart.shell.command, [...smart.shell.args, smart.command], {
@@ -300,6 +333,7 @@ export async function executeWebCommand(options: WebCommandOptions): Promise<Web
   });
 
   let output = result.text;
+  if (mapping) output = output ? `${mapping}\n${output}` : mapping;
   if (result.timedOut) output = output ? `${output}\n(timed out after ${timeoutMs}ms)` : `(timed out after ${timeoutMs}ms)`;
   if (result.code !== 0 && result.code !== null) output = output ? `${output}\n(exit ${result.code})` : `(exit ${result.code})`;
   if (!output) output = result.code === 0 ? '(no output)' : `(exit ${result.code}, no output)`;
@@ -354,47 +388,36 @@ class WebAgentRuntime {
     sessionWarm?: boolean;
   }> {
     if (this.agentEnv) {
-      const name = normalizeProviderName(this.agentEnv.provider.name);
-      const usesKey = providerUsesCloudApiKey(name);
+      const offline = this.agentEnv.provider.name === 'offline';
       return {
-        provider: name,
+        provider: offline ? 'offline' : 'custom',
         model: this.agentEnv.provider.modelId,
         sessionId: this.agentEnv.session.id,
-        providerUsesApiKey: usesKey,
-        providerApiKeyConfigured: true,
-        agentCanRun: true,
-        providerHint: null,
+        providerUsesApiKey: false,
+        providerApiKeyConfigured: !offline,
+        agentCanRun: !offline,
+        providerHint: offline ? modelSetupHint() : null,
         sessionWarm: true,
       };
     }
 
     const cfg = await this.loadConfig();
-    const pid = normalizeProviderName(this.providerName ?? cfg.defaultProvider ?? 'openrouter');
-    const usesKey = providerUsesCloudApiKey(pid);
-
-    const block = cfg.providers?.[pid as keyof YamConfig['providers']] as { model?: string } | undefined;
-    const cfgBlockModel =
-      typeof block?.model === 'string' ? String(block.model).trim() : '';
-    const dm = typeof cfg.defaultModel === 'string' ? cfg.defaultModel.trim() : '';
+    const block = cfg.providers?.custom;
+    const connected = hasCloudApiKey(cfg, 'custom');
     const modelCli = this.modelName && String(this.modelName).trim();
-
-    const model = modelCli || dm || cfgBlockModel || '';
-
-    const credentialed = hasCloudApiKey(cfg, pid);
-    const canRun = credentialed;
-    let hint: string | null = null;
-    if (usesKey && !credentialed) {
-      hint = credentialSetupHint(pid);
-    }
+    const model =
+      modelCli ||
+      (typeof block?.model === 'string' ? block.model.trim() : '') ||
+      (typeof cfg.defaultModel === 'string' ? cfg.defaultModel.trim() : '');
 
     return {
-      provider: pid,
-      model,
+      provider: connected ? 'custom' : 'offline',
+      model: connected ? model : 'local',
       sessionId: undefined,
-      providerUsesApiKey: usesKey,
-      providerApiKeyConfigured: credentialed,
-      agentCanRun: canRun,
-      providerHint: hint,
+      providerUsesApiKey: false,
+      providerApiKeyConfigured: connected,
+      agentCanRun: connected,
+      providerHint: connected ? null : modelSetupHint(),
       sessionWarm: false,
     };
   }
@@ -416,50 +439,6 @@ class WebAgentRuntime {
     if (!command) return failure(command, 'Error: message is required.', started, this.allowDangerous);
 
     const intent = classifyUserIntent(command);
-    // Conversational input is only short-circuited when nothing can answer it.
-    // With a provider available (override, warm env, or configured credentials)
-    // greetings and vague requests still reach the agent.
-    const canAnswer = await this.agentCanAnswer();
-    if (intent.kind === 'conversation' && !canAnswer) {
-      const { provider, model } = await this.resolveProviderLabels();
-      return {
-        ok: true,
-        blocked: false,
-        kind: 'chat',
-        command,
-        output:
-          'This YamX web panel is command-focused. Send a concrete CLI task like `git status`, `npm test`, `ls`, or ask for a command for Windows/macOS/Linux.',
-        code: 0,
-        timedOut: false,
-        durationMs: Date.now() - started,
-        cwd: getWorkspaceRelativeCwd(),
-        allowDangerous: this.allowDangerous,
-        provider,
-        model,
-        sessionId: this.agentEnv?.session.id,
-      };
-    }
-
-    if (intent.kind === 'clarification' && !canAnswer) {
-      const { provider, model } = await this.resolveProviderLabels();
-      return {
-        ok: true,
-        blocked: false,
-        kind: 'chat',
-        command,
-        output:
-          'Need a concrete command-line request. Example: `install node on ubuntu`, `git undo last commit`, or `find large files on windows`.',
-        code: 0,
-        timedOut: false,
-        durationMs: Date.now() - started,
-        cwd: getWorkspaceRelativeCwd(),
-        allowDangerous: this.allowDangerous,
-        provider,
-        model,
-        sessionId: this.agentEnv?.session.id,
-      };
-    }
-
     const scanIntent = detectOfflineProjectScanIntent(command);
     if (scanIntent) {
       try {
@@ -501,11 +480,71 @@ class WebAgentRuntime {
 
     try {
       const env = await this.getAgentEnv();
-      const captured = await captureConsoleOutput(async () => {
-        await env.agent.chat(command);
-      });
+      const offline = env.provider.name === 'offline';
+      if (isCodingTurn(command)) {
+        const freshBrief = await buildCodingBrief(command);
+        if (offline) {
+          savePendingCodingBrief(command, freshBrief);
+          return {
+            ok: true,
+            blocked: false,
+            kind: 'chat',
+            command,
+            output: 'This change needs a model. Project path and stack are saved. Connect one, then ask again.',
+            code: 0,
+            timedOut: false,
+            durationMs: Date.now() - started,
+            cwd: getWorkspaceRelativeCwd(),
+            allowDangerous: this.allowDangerous,
+            provider: env.provider.name,
+            model: env.provider.modelId,
+            sessionId: env.session.id,
+          };
+        }
+        const saved = consumePendingCodingBrief();
+        const brief = saved ? `${saved.brief}\n\n${freshBrief}` : freshBrief;
+        await env.agent.chat(wrapCodingBrief(brief, command));
+      } else if (offline && (intent.kind === 'conversation' || intent.kind === 'clarification' || intent.kind === 'empty')) {
+        return {
+          ok: true,
+          blocked: false,
+          kind: 'chat',
+          command,
+          output: 'Hi. YamX is local · offline. Shell commands run here. Connect a model when you want to write or debug code.',
+          code: 0,
+          timedOut: false,
+          durationMs: Date.now() - started,
+          cwd: getWorkspaceRelativeCwd(),
+          allowDangerous: this.allowDangerous,
+          provider: env.provider.name,
+          model: env.provider.modelId,
+          sessionId: env.session.id,
+        };
+      } else if (offline) {
+        const captured = stripAnsi(await captureConsoleOutput(() => runOfflineIntelligence(command, env.cfg))).trim();
+        return {
+          ok: true,
+          blocked: false,
+          kind: 'chat',
+          command,
+          output: captured || '(no response)',
+          code: 0,
+          timedOut: false,
+          durationMs: Date.now() - started,
+          cwd: getWorkspaceRelativeCwd(),
+          allowDangerous: this.allowDangerous,
+          provider: env.provider.name,
+          model: env.provider.modelId,
+          sessionId: env.session.id,
+        };
+      } else {
+        const agentInput = shouldAttachProjectIntel(command)
+          ? await buildAgentInputWithProjectIntel(command)
+          : command;
+        await env.agent.chat(agentInput);
+      }
       const fromTurn = assistantTextAfterLastUserMessage(env.agent.getHistory());
-      const output = fromTurn.trim() || captured.trim() || '(no response)';
+      const output = fromTurn.trim() || '(no response)';
       return {
         ok: true,
         blocked: false,
@@ -529,16 +568,15 @@ class WebAgentRuntime {
     }
   }
 
-  /** True when a provider can actually answer: override, warm env, or configured credentials. */
-  private async agentCanAnswer(): Promise<boolean> {
-    if (this.providerOverride || this.agentEnv) return true;
+  private async openProvider(cfg: YamConfig): Promise<Provider> {
     try {
-      const cfg = await this.loadConfig();
-      const pid = normalizeProviderName(this.providerName ?? cfg.defaultProvider ?? 'openrouter');
-      if (!providerUsesCloudApiKey(pid)) return true;
-      return hasCloudApiKey(cfg, pid);
-    } catch {
-      return false;
+      return createProvider('custom', this.modelName || cfg.defaultModel, cfg);
+    } catch (error: any) {
+      const setupMsg = String(error?.message || error);
+      if (setupMsg.includes('API key not found') || setupMsg.includes('Custom endpoint not configured')) {
+        return new OfflineProvider();
+      }
+      throw error;
     }
   }
 
@@ -588,11 +626,7 @@ class WebAgentRuntime {
     if (this.agentEnv) return this.agentEnv;
 
     const cfg = await this.loadConfig();
-    const provider = this.providerOverride || createProvider(
-      this.providerName || cfg.defaultProvider || 'openrouter',
-      this.modelName || cfg.defaultModel,
-      cfg
-    );
+    const provider = this.providerOverride || await this.openProvider(cfg);
     const contextEngine = new ContextEngine(PROJECT_ROOT);
     const systemPrompt = await contextEngine.buildSystemPrompt();
     const store = new SessionStore();
@@ -634,6 +668,9 @@ class WebAgentRuntime {
       preflightRuntimeProbes: cfg.settings?.preflightRuntimeProbes !== false,
       nonInteractiveApprovals: this.allowDangerous ? 'allow' : 'deny',
       headlessUi: true,
+      subagentsEnabled: cfg.settings?.subagents?.enabled !== false,
+      subagentMaxParallel: cfg.settings?.subagents?.maxParallel ?? 3,
+      subagentMaxIterations: cfg.settings?.subagents?.maxIterations ?? 12,
     });
 
     this.agentEnv = { agent, cfg, store, session, provider };
@@ -736,6 +773,41 @@ async function handleRequest(
       const config = new Config();
       const cfg = await config.load();
       return sendJson(res, 200, { ok: true, config: publicConfigView(cfg) });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/connect') {
+      const body = (await readJsonBody(req)) as Record<string, unknown> | null;
+      const clear = body?.clear === true;
+      const config = new Config();
+      await config.load();
+      if (clear) {
+        config.set('providers.custom', {});
+        config.set('defaultProvider', 'custom');
+        await config.save();
+      } else {
+        const baseUrl = normalizeChatBaseUrl(String(body?.baseUrl || ''));
+        if (!baseUrl) {
+          return sendJson(res, 400, { ok: false, error: 'Base URL must be an http(s) address, such as https://api.example.com/v1' });
+        }
+        const model = String(body?.model || '').trim();
+        if (!model) return sendJson(res, 400, { ok: false, error: 'Model name is required.' });
+        const previous = config.get().providers.custom;
+        const incomingKey = String(body?.apiKey || '').trim();
+        const apiKey = incomingKey && incomingKey !== '********' ? incomingKey : previous?.apiKey;
+        const extraHeaders = headerLinesToRecord(body?.extraHeaders);
+        config.set('providers.custom', {
+          baseUrl,
+          model,
+          ...(apiKey ? { apiKey } : {}),
+          ...(Object.keys(extraHeaders).length ? { extraHeaders } : {}),
+        });
+        config.set('defaultProvider', 'custom');
+        config.set('defaultModel', model);
+        await config.save();
+      }
+      options.runtime.invalidateCaches();
+      const saved = await new Config().load();
+      return sendJson(res, 200, { ok: true, config: publicConfigView(saved) });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/runtime/reload') {
